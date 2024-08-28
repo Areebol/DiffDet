@@ -26,14 +26,7 @@ from going_modular.going_modular import data_setup, engine
 from helper_functions import download_data, set_seeds, plot_loss_curves
 
 
-# In[19]:
-
-
 device = "cuda" if torch.cuda.is_available() else "cpu"
-
-
-# In[20]:
-
 
 import torch
 import torchvision
