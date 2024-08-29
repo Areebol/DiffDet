@@ -41,7 +41,10 @@ class VideoDetectionDatasetV2(Dataset):
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
             idx = idx.tolist()
-        return self.inputs[idx], self.labels[idx]
+        # 返回数据类型为 torch.float32 的 input
+        return torch.tensor(self.inputs[idx], dtype=torch.float32), self.labels[idx]
+        # # input 数据类型转换后为 torch.float16 (Half)
+        # return (self.inputs[idx], self.labels[idx])
 
 
 def batch_get_features(video_detection_dataset_v1: VideoDetectionDatasetV1):

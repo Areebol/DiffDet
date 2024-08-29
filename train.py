@@ -5,7 +5,7 @@ from model import *
 
 if __name__ == "__main__":
     # 加载数据集特征
-    video_detection_dataset = load_features("clip_input.npy", "clip_output.npy")
+    video_detection_dataset = load_features(f"{cwd}/clip_input", f"{cwd}/clip_output")
 
     # 划分数据集
     train_dataset, test_dataset = split_dataset(video_detection_dataset)
@@ -48,4 +48,3 @@ if __name__ == "__main__":
 
     # 保存模型
     torch.save(vit_model.state_dict(), f"{cwd}/models/vit.pth")
-

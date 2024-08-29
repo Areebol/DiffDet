@@ -45,6 +45,9 @@ def train_step(
         # Send data to target device
         X, y = X.to(device), y.to(device)
 
+        # print(f"X: {X.shape}, y: {y.shape}")
+        # print(f"X dtype: {X.dtype}, y dtype: {y.dtype}")
+
         # 1. Forward pass
         y_pred = model(X)
 
