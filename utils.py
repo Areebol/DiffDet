@@ -28,6 +28,10 @@ clip_model, clip_preprocess = None, None
 
 # 图像输入尺寸
 input_shape = (224, 224)
+batch_size = 64
+num_workers = 32
+
+seed = 42
 
 # 图像预处理转换
 transform = transforms.Compose(

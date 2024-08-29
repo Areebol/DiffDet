@@ -64,6 +64,35 @@ def batch_get_features(video_detection_dataset_v1: VideoDetectionDatasetV1):
     return clip_features, labels
 
 
+def load_features(input_path: str, output_path: str) -> VideoDetectionDatasetV2:
+    input = np.load(input_path)
+    labels = np.load(output_path)
+    input = input.reshape((len(input), 1, 2048))
+    video_detection_dataset_v2 = VideoDetectionDatasetV2(input, labels)
+    return video_detection_dataset_v2
+
+
+def split_dataset(video_detection_dataset_v2: VideoDetectionDatasetV2):
+    # 划分训练集和测试集
+    train_size = int(0.8 * len(video_detection_dataset_v2))
+    test_size = len(video_detection_dataset_v2) - train_size
+    train_dataset, test_dataset = torch.utils.data.random_split(
+        video_detection_dataset_v2, [train_size, test_size]
+    )
+    return train_dataset, test_dataset
+
+
+def get_dataloader(train_dataset, test_dataset):
+    """根据训练集和测试集构建数据加载器"""
+    # 数据加载器
+    train_dataloader = DataLoader(
+        train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
+    )
+    test_dataloader = DataLoader(
+        test_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
+    )
+    return train_dataloader, test_dataloader
+
 
 if __name__ == "__main__":
 
