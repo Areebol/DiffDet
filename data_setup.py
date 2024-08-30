@@ -1,13 +1,6 @@
 from utils import *
 
-# 数据集路径
-real_paths = glob(f"{cwd}/realfake-video-dataset/real/*/*")
-fake_paths = glob(f"{cwd}/realfake-video-dataset/fake/*/*")
-paths = np.concatenate((real_paths, fake_paths))
-info(f"[数据集路径] 真实视频数量：{len(real_paths)}，假视频数量：{len(fake_paths)}")
-info(f"[数据集路径] 路径展示:{paths[:5]}")
-labels = np.concatenate((np.zeros(len(real_paths)), np.ones(len(fake_paths))))
-info(f"[数据集路径] 标签数量：{len(labels)}")
+
 
 
 # 从视频帧中构建数据集
@@ -98,6 +91,14 @@ def get_dataloader(train_dataset, test_dataset):
 
 
 if __name__ == "__main__":
+    # 数据集路径
+    real_paths = glob(f"{cwd}/realfake-video-dataset/real/*/*")
+    fake_paths = glob(f"{cwd}/realfake-video-dataset/fake/*/*")
+    paths = np.concatenate((real_paths, fake_paths))
+    info(f"[数据集路径] 真实视频数量：{len(real_paths)}，假视频数量：{len(fake_paths)}")
+    info(f"[数据集路径] 路径展示:{paths[:5]}")
+    labels = np.concatenate((np.zeros(len(real_paths)), np.ones(len(fake_paths))))
+    info(f"[数据集路径] 标签数量：{len(labels)}")
 
     video_detection_dataset_v1 = VideoDetectionDatasetV1(paths, labels)
     clip_features, labels = batch_get_features(video_detection_dataset_v1)

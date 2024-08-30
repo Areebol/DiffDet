@@ -41,7 +41,9 @@ transform = transforms.Compose(
 )
 
 
-def clip_feature(img):
+def clip_feature(img: Image) -> torch.Tensor:
+    """提取图像的 CLIP 特征"""
+
     # 按需加载 CLIP 模型
     global clip_model, clip_preprocess
     if clip_model is None or clip_preprocess is None:
@@ -50,4 +52,5 @@ def clip_feature(img):
     # 图像预处理后用 CLIP 提取特征
     img = clip_preprocess(transform(img)).unsqueeze(0).to(device)
     features = clip_model.encode_image(img)
-    return features
+    print(f"CLIP 特征提取: {features.shape}")
+    return features  # torch.Size([1, 512])
