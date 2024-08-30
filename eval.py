@@ -25,7 +25,7 @@ def eval_from_video_frames(video_frames_dir):
     test_data = torch.tensor(test_data, dtype=torch.float32).to(device)
 
     # 加载模型
-    print("加载 ViT 模型 ...")
+    info("加载 ViT 模型 ...")
     vit_model = load_vit_model()
 
     # 测试模型
@@ -33,8 +33,8 @@ def eval_from_video_frames(video_frames_dir):
     with torch.no_grad():
         result = vit_model(test_data)
 
-    print(f"模型输出: {result.cpu().detach().numpy()}")
-    print(f"预测结果: {np.argmax(result.cpu().detach().numpy())}")
+    info(f"模型输出: {result.cpu().detach().numpy()}")
+    info(f"预测结果: {np.argmax(result.cpu().detach().numpy())}")
 
 
 if __name__ == "__main__":

@@ -17,12 +17,35 @@ from PIL import Image
 from going_modular.going_modular import data_setup, engine
 
 import logging
+import datetime
 
+cwd = Path(__file__).parent
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+formatter = logging.Formatter("%(asctime)s - %(message)s")
+
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(formatter)
+
+file_handler = logging.FileHandler(f"{cwd}/logs/{datetime.datetime.now()}.log")
+file_handler.setFormatter(formatter)
+
+logger.addHandler(console_handler)
+logger.addHandler(file_handler)
+
+
+# 打印到控制台并保存到日志
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(message)s",
+    handlers=[logging.FileHandler("log.txt")],
+)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 
 info = logging.info
 
-cwd = Path(__file__).parent
 device = "cuda" if torch.cuda.is_available() else "cpu"
 clip_model, clip_preprocess = None, None
 
@@ -52,5 +75,4 @@ def clip_feature(img: Image) -> torch.Tensor:
     # 图像预处理后用 CLIP 提取特征
     img = clip_preprocess(transform(img)).unsqueeze(0).to(device)
     features = clip_model.encode_image(img)
-    print(f"CLIP 特征提取: {features.shape}")
     return features  # torch.Size([1, 512])
