@@ -1,4 +1,4 @@
-import os
+import os, sys
 import numpy as np
 import pandas as pd
 from glob import glob
@@ -22,11 +22,11 @@ import datetime
 cwd = Path(__file__).parent
 
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 formatter = logging.Formatter("%(asctime)s - %(message)s")
 
-console_handler = logging.StreamHandler()
+console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setFormatter(formatter)
 
 file_handler = logging.FileHandler(f"{cwd}/logs/{datetime.datetime.now()}.log")
@@ -35,16 +35,8 @@ file_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 logger.addHandler(file_handler)
 
-
-# 打印到控制台并保存到日志
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(message)s",
-    handlers=[logging.FileHandler("log.txt")],
-)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
-
 info = logging.info
+
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 clip_model, clip_preprocess = None, None
