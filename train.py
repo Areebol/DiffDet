@@ -75,7 +75,7 @@ def __archive():
     )
 
     # 数据加载器
-    train_dataloader, test_dataloader = get_dataloader_v1(train_dataset, test_dataset)
+    train_dataloader, test_dataloader = get_dataloader(train_dataset, test_dataset)
 
     # 开始训练
     torch.manual_seed(seed)

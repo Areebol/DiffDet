@@ -1,4 +1,26 @@
 from utils import *
+from torch.utils.data import Dataset, DataLoader
+
+# 图像预处理转换
+transform = transforms.Compose(
+    [
+        transforms.Resize(input_shape),
+    ]
+)
+
+
+def clip_feature(img: Image) -> torch.Tensor:
+    """提取图像的 CLIP 特征"""
+
+    # 按需加载 CLIP 模型
+    global clip_model, clip_preprocess
+    if clip_model is None or clip_preprocess is None:
+        clip_model, clip_preprocess = clip.load("ViT-B/32", device=device)
+
+    # 图像预处理后用 CLIP 提取特征
+    img = clip_preprocess(transform(img)).unsqueeze(0).to(device)
+    features = clip_model.encode_image(img)
+    return features  # torch.Size([1, 512])
 
 
 # 从视频帧中构建数据集
@@ -109,16 +131,12 @@ def split_dataset(video_detection_dataset_v2: VideoDetectionDatasetV2):
     return train_dataset, test_dataset
 
 
-def get_dataloader(train_dataset, test_dataset):
-    """根据训练集和测试集构建数据加载器"""
-    # 数据加载器
-    train_dataloader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
+def get_dataloader(dataset: Dataset):
+    """传入数据集构建数据加载器"""
+    dataloader = DataLoader(
+        dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
     )
-    test_dataloader = DataLoader(
-        test_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
-    )
-    return train_dataloader, test_dataloader
+    return dataloader
 
 
 def __archive():

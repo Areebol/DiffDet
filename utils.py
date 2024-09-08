@@ -13,6 +13,7 @@ from torchvision import transforms
 from torchinfo import summary
 import clip
 from PIL import Image
+import cv2
 
 from going_modular.going_modular import data_setup, engine
 
@@ -48,23 +49,23 @@ num_workers = 32
 
 seed = 42
 
-# 图像预处理转换
-transform = transforms.Compose(
-    [
-        transforms.Resize(input_shape),
-    ]
-)
 
 
-def clip_feature(img: Image) -> torch.Tensor:
-    """提取图像的 CLIP 特征"""
 
-    # 按需加载 CLIP 模型
-    global clip_model, clip_preprocess
-    if clip_model is None or clip_preprocess is None:
-        clip_model, clip_preprocess = clip.load("ViT-B/32", device=device)
+def makeFrames(video_path, parent_path, count=1):
+    vidcap = cv2.VideoCapture(str(video_path))
 
-    # 图像预处理后用 CLIP 提取特征
-    img = clip_preprocess(transform(img)).unsqueeze(0).to(device)
-    features = clip_model.encode_image(img)
-    return features  # torch.Size([1, 512])
+    success, image = vidcap.read()
+
+    # count 为 1 就是连续读取 4 帧
+    # count 为 2 就是连续读取 4 帧（_0），再连续读取 4 帧（_1）
+    for itr in range(0, count):
+        path = Path(f"{str(parent_path)}_{itr}")
+
+        if os.path.isdir(path) == False:
+            os.makedirs(path)
+
+        for frame in range(0, 4):
+            frame_path = Path(path, f"frame{frame}.jpg")
+            cv2.imwrite(str(frame_path), image)
+            success, image = vidcap.read()
