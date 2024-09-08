@@ -14,6 +14,7 @@ from torchinfo import summary
 import clip
 from PIL import Image
 import cv2
+import time
 
 from going_modular.going_modular import data_setup, engine
 
@@ -38,7 +39,6 @@ logger.addHandler(file_handler)
 
 info = logging.info
 
-
 device = "cuda" if torch.cuda.is_available() else "cpu"
 clip_model, clip_preprocess = None, None
 
@@ -48,8 +48,6 @@ batch_size = 64
 num_workers = 32
 
 seed = 42
-
-
 
 
 def makeFrames(video_path, parent_path, count=1):

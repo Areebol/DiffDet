@@ -1,5 +1,25 @@
 from utils import *
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, ConcatDataset
+
+GENVIDEO_DIR = "/root/jyj/proj/decof/datasets/genvideo"
+dataset_paths = {
+    "DynamicCrafter": f"{GENVIDEO_DIR}/train/fake/DynamicCrafter",
+    "Latte": f"{GENVIDEO_DIR}/train/fake/Latte",
+    "OpenSora": f"{GENVIDEO_DIR}/train/fake/OpenSora",
+    "Pika": f"{GENVIDEO_DIR}/train/fake/Pika",
+    "SEINE": f"{GENVIDEO_DIR}/train/fake/SEINE",
+    "Crafter": f"{GENVIDEO_DIR}/val/fake/Crafter",
+    "Gen2": f"{GENVIDEO_DIR}/val/fake/Gen2",
+    "HotShot": f"{GENVIDEO_DIR}/val/fake/HotShot",
+    "Lavie": f"{GENVIDEO_DIR}/val/fake/Lavie",
+    "ModelScope": f"{GENVIDEO_DIR}/val/fake/ModelScope",
+    "MoonValley": f"{GENVIDEO_DIR}/val/fake/MoonValley",
+    "MorphStudio": f"{GENVIDEO_DIR}/val/fake/MorphStudio",
+    "Show_1": f"{GENVIDEO_DIR}/val/fake/Show_1",
+    "WildScrape": f"{GENVIDEO_DIR}/val/fake/WildScrape",
+    "Sora": f"{GENVIDEO_DIR}/val/fake/Sora",
+    "MSR-VTT": f"{GENVIDEO_DIR}/val/real/MSR-VTT",
+}
 
 # 图像预处理转换
 transform = transforms.Compose(
@@ -7,6 +27,8 @@ transform = transforms.Compose(
         transforms.Resize(input_shape),
     ]
 )
+
+NUM_FRAMES = 8
 
 
 def clip_feature(img: Image) -> torch.Tensor:
@@ -72,6 +94,52 @@ class VideoDetectionDatasetV3(Dataset):
 
     def __getitem__(self, idx):
         return torch.tensor(self.inputs[idx], dtype=torch.float32), self.label
+
+
+class VideoDataset(Dataset):
+    def __init__(self, dataset_path):
+        super().__init__()
+        self.files = list(Path(dataset_path).glob("*"))
+        self.fake = 1 if "/fake/" in str(dataset_path) else 0
+        info(
+            f"[数据集] 初始化 {dataset_path}，样本数量：{len(self)}，标签：{self.fake}"
+        )
+
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, idx):
+        t = time.time()
+
+        # 读入视频文件
+        cap = cv2.VideoCapture(self.files[idx])
+        info(f"[数据集] 读取视频耗时：{time.time() - t:.2f} 秒")
+
+        # 用 cv2 读取视频帧
+        frames = []
+        for i in range(NUM_FRAMES):
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frames.append(frame)
+        cap.release()
+        info(f"[数据集] 读取视频帧耗时：{time.time() - t:.2f} 秒")
+
+        # 用 CLIP 提取特征
+        features = []
+        for frame in frames:
+            img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            features.append(clip_feature(img).detach().cpu().numpy())
+        info(f"[数据集] 提取视频特征耗时：{time.time() - t:.2f} 秒")
+
+        # 将特征列表转换为单一的 NumPy 数组
+        features_array = np.array(features)
+        info(f"[数据集] 转换视频特征耗时：{time.time() - t:.2f} 秒")
+
+        features_tensor = torch.tensor(features_array, dtype=torch.float32)
+        info(f"[数据集] 转换视频特征为张量耗时：{time.time() - t:.2f} 秒")
+
+        return features_tensor, self.fake
 
 
 def batch_get_features_v1(video_detection_dataset_v1: VideoDetectionDatasetV1):
@@ -155,15 +223,24 @@ def __archive():
 
 
 if __name__ == "__main__":
-    for dataset_path in glob(f"{cwd}/datasets/*/*"):
-        info(f"[CLIP 特征] 为 {dataset_path} 提取特征")
-        clip_features = clip_features_from_dataset(dataset_path)
+    """"""
+    ds = VideoDataset(dataset_paths["MSR-VTT"])
+    # 并行取出 100 个数据
+    import concurrent.futures
 
-        # CLIP 特征保存路径
-        out_features_path = dataset_path.replace("/datasets/", "/out/clip_feature/")
-        out_features_path = Path(out_features_path).with_suffix(".npy")
-        out_features_path.parent.mkdir(parents=True, exist_ok=True)
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=128)
+    res = executor.map(lambda x: ds[x], range(100))
+    print(res)
 
-        # 保存 CLIP 特征
-        info(f"[CLIP 特征] 保存特征到：{out_features_path}")
-        np.save(out_features_path, clip_features)
+    # for dataset_path in glob(f"{cwd}/datasets/*/*"):
+    #     info(f"[CLIP 特征] 为 {dataset_path} 提取特征")
+    #     clip_features = clip_features_from_dataset(dataset_path)
+
+    #     # CLIP 特征保存路径
+    #     out_features_path = dataset_path.replace("/datasets/", "/out/clip_feature/")
+    #     out_features_path = Path(out_features_path).with_suffix(".npy")
+    #     out_features_path.parent.mkdir(parents=True, exist_ok=True)
+
+    #     # 保存 CLIP 特征
+    #     info(f"[CLIP 特征] 保存特征到：{out_features_path}")
+    #     np.save(out_features_path, clip_features)
