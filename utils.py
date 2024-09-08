@@ -23,6 +23,8 @@ import datetime
 
 cwd = Path(__file__).parent
 
+DEBUG = True
+
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
@@ -30,14 +32,17 @@ formatter = logging.Formatter("%(asctime)s - %(message)s")
 
 console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setFormatter(formatter)
+console_handler.setLevel(logging.DEBUG if locals().get("DEBUG") else logging.INFO)
 
 file_handler = logging.FileHandler(f"{cwd}/logs/{datetime.datetime.now()}.log")
 file_handler.setFormatter(formatter)
+file_handler.setLevel(logging.INFO)
 
 logger.addHandler(console_handler)
 logger.addHandler(file_handler)
 
 info = logging.info
+debug = logging.debug
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 clip_model, clip_preprocess = None, None

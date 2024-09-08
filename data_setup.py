@@ -1,25 +1,27 @@
 from utils import *
 from torch.utils.data import Dataset, DataLoader, ConcatDataset
 
-GENVIDEO_DIR = "/root/jyj/proj/decof/datasets/genvideo"
+DATASETS_DIR = "/root/jyj/proj/decof/datasets"
+FEATURES_DIR = "/root/jyj/proj/decof/features"
 dataset_paths = {
-    "DynamicCrafter": f"{GENVIDEO_DIR}/train/fake/DynamicCrafter",
-    "Latte": f"{GENVIDEO_DIR}/train/fake/Latte",
-    "OpenSora": f"{GENVIDEO_DIR}/train/fake/OpenSora",
-    "Pika": f"{GENVIDEO_DIR}/train/fake/Pika",
-    "SEINE": f"{GENVIDEO_DIR}/train/fake/SEINE",
-    "Crafter": f"{GENVIDEO_DIR}/val/fake/Crafter",
-    "Gen2": f"{GENVIDEO_DIR}/val/fake/Gen2",
-    "HotShot": f"{GENVIDEO_DIR}/val/fake/HotShot",
-    "Lavie": f"{GENVIDEO_DIR}/val/fake/Lavie",
-    "ModelScope": f"{GENVIDEO_DIR}/val/fake/ModelScope",
-    "MoonValley": f"{GENVIDEO_DIR}/val/fake/MoonValley",
-    "MorphStudio": f"{GENVIDEO_DIR}/val/fake/MorphStudio",
-    "Show_1": f"{GENVIDEO_DIR}/val/fake/Show_1",
-    "WildScrape": f"{GENVIDEO_DIR}/val/fake/WildScrape",
-    "Sora": f"{GENVIDEO_DIR}/val/fake/Sora",
-    "MSR-VTT": f"{GENVIDEO_DIR}/val/real/MSR-VTT",
+    "DynamicCrafter": f"{DATASETS_DIR}/genvideo/train/fake/DynamicCrafter",
+    "Latte": f"{DATASETS_DIR}/genvideo/train/fake/Latte",
+    "OpenSora": f"{DATASETS_DIR}/genvideo/train/fake/OpenSora",
+    "Pika": f"{DATASETS_DIR}/genvideo/train/fake/Pika",
+    "SEINE": f"{DATASETS_DIR}/genvideo/train/fake/SEINE",
+    "Crafter": f"{DATASETS_DIR}/genvideo/val/fake/Crafter",
+    "Gen2": f"{DATASETS_DIR}/genvideo/val/fake/Gen2",
+    "HotShot": f"{DATASETS_DIR}/genvideo/val/fake/HotShot",
+    "Lavie": f"{DATASETS_DIR}/genvideo/val/fake/Lavie",
+    "ModelScope": f"{DATASETS_DIR}/genvideo/val/fake/ModelScope",
+    "MoonValley": f"{DATASETS_DIR}/genvideo/val/fake/MoonValley",
+    "MorphStudio": f"{DATASETS_DIR}/genvideo/val/fake/MorphStudio",
+    "Show_1": f"{DATASETS_DIR}/genvideo/val/fake/Show_1",
+    "WildScrape": f"{DATASETS_DIR}/genvideo/val/fake/WildScrape",
+    "Sora": f"{DATASETS_DIR}/genvideo/val/fake/Sora",
+    "MSR-VTT": f"{DATASETS_DIR}/genvideo/val/real/MSR-VTT",
 }
+FEATURE = "clip"
 
 # 图像预处理转换
 transform = transforms.Compose(
@@ -30,17 +32,14 @@ transform = transforms.Compose(
 
 NUM_FRAMES = 8
 
+clip_model, clip_preprocess = clip.load("ViT-B/32", device=device)
+
 
 def clip_feature(img: Image) -> torch.Tensor:
     """提取图像的 CLIP 特征"""
-
-    # 按需加载 CLIP 模型
-    global clip_model, clip_preprocess
-    if clip_model is None or clip_preprocess is None:
-        clip_model, clip_preprocess = clip.load("ViT-B/32", device=device)
-
-    # 图像预处理后用 CLIP 提取特征
+    # 对图像进行预处理
     img = clip_preprocess(transform(img)).unsqueeze(0).to(device)
+    # 用 CLIP 提取特征
     features = clip_model.encode_image(img)
     return features  # torch.Size([1, 512])
 
@@ -111,9 +110,20 @@ class VideoDataset(Dataset):
     def __getitem__(self, idx):
         t = time.time()
 
+        # 如果已有特征文件则直接加载
+        if FEATURE == "clip":
+            feature_path = Path(
+                str(self.files[idx]).replace(DATASETS_DIR, f"{FEATURES_DIR}/clip")
+            )
+            if feature_path.with_suffix(".npy").exists():
+                features_array = np.load(feature_path.with_suffix(".npy"))
+                features_tensor = torch.tensor(features_array, dtype=torch.float32)
+                debug(f"[数据集] 加载特征耗时：{time.time() - t:.2f} 秒")
+                return features_tensor, self.fake
+
         # 读入视频文件
         cap = cv2.VideoCapture(self.files[idx])
-        info(f"[数据集] 读取视频耗时：{time.time() - t:.2f} 秒")
+        debug(f"[数据集] 读取视频耗时：{time.time() - t:.2f} 秒")
 
         # 用 cv2 读取视频帧
         frames = []
@@ -123,21 +133,33 @@ class VideoDataset(Dataset):
                 break
             frames.append(frame)
         cap.release()
-        info(f"[数据集] 读取视频帧耗时：{time.time() - t:.2f} 秒")
+        debug(f"[数据集] 读取视频帧耗时：{time.time() - t:.2f} 秒")
 
         # 用 CLIP 提取特征
         features = []
         for frame in frames:
             img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            features.append(clip_feature(img).detach().cpu().numpy())
-        info(f"[数据集] 提取视频特征耗时：{time.time() - t:.2f} 秒")
+            if FEATURE == "clip":
+                features.append(clip_feature(img).detach().cpu().numpy())
+        debug(f"[数据集] 提取视频特征耗时：{time.time() - t:.2f} 秒")
 
         # 将特征列表转换为单一的 NumPy 数组
-        features_array = np.array(features)
-        info(f"[数据集] 转换视频特征耗时：{time.time() - t:.2f} 秒")
+        features_array = np.array(features).flatten()
+        debug(f"[数据集] 转换视频特征耗时：{time.time() - t:.2f} 秒")
+
+        # 保存特征
+        if FEATURE == "clip":
+            # 直接保存 NumPy 数组
+            save_path = Path(
+                str(self.files[idx]).replace(DATASETS_DIR, f"{FEATURES_DIR}/clip")
+            )
+            # 如果目录不存在则创建
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            np.save(save_path.with_suffix(".npy"), features_array)
+            debug(f"[数据集] 保存特征耗时：{time.time() - t:.2f} 秒")
 
         features_tensor = torch.tensor(features_array, dtype=torch.float32)
-        info(f"[数据集] 转换视频特征为张量耗时：{time.time() - t:.2f} 秒")
+        debug(f"[数据集] 转换视频特征为张量耗时：{time.time() - t:.2f} 秒")
 
         return features_tensor, self.fake
 
@@ -225,12 +247,8 @@ def __archive():
 if __name__ == "__main__":
     """"""
     ds = VideoDataset(dataset_paths["MSR-VTT"])
-    # 并行取出 100 个数据
-    import concurrent.futures
-
-    executor = concurrent.futures.ThreadPoolExecutor(max_workers=128)
-    res = executor.map(lambda x: ds[x], range(100))
-    print(res)
+    for i in range(10000):
+        ds[i]
 
     # for dataset_path in glob(f"{cwd}/datasets/*/*"):
     #     info(f"[CLIP 特征] 为 {dataset_path} 提取特征")
