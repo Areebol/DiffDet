@@ -2,31 +2,32 @@ from utils import *
 from data_setup import *
 from model import *
 
-
-# 训练模型
-vit_model = ViT(d_model=4096, num_heads=8, num_classes=2)
 # # 模型小结
 # summary(
-#     model=vit_model,
+#     model=ViT(d_model=4096, num_heads=8, num_classes=2),
 #     # input_size=(4, 1, 2048),
 #     # col_names=["input_size", "output_size", "num_params", "trainable"],
 #     # col_width=20,
 #     # row_settings=["var_names"],
 # )
 
-# 优化器
-optimizer = torch.optim.Adam(
-    params=vit_model.parameters(), lr=1e-3, betas=(0.9, 0.999), weight_decay=0.1
-)
-
-# 损失函数
-loss_fn = torch.nn.CrossEntropyLoss()
-
 
 def _train(train_dataset: Dataset, test_dataset: Dataset):
+    # 初始化模型
+    vit_model = ViT(d_model=4096, num_heads=8, num_classes=2)
+    vit_model = vit_model.to(device)
+
+    # 优化器
+    optimizer = torch.optim.Adam(
+        params=vit_model.parameters(), lr=1e-3, betas=(0.9, 0.999), weight_decay=0.1
+    )
+
+    # 损失函数
+    loss_fn = torch.nn.CrossEntropyLoss()
+
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
-    model = engine.train(
+    engine.train(
         model=vit_model,
         train_dataloader=dataloader(train_dataset),
         test_dataloader=dataloader(test_dataset),
@@ -36,27 +37,28 @@ def _train(train_dataset: Dataset, test_dataset: Dataset):
         device=device,
     )
 
-    # # 保存模型
-    # torch.save(vit_model.state_dict(), f"{cwd}/models/vit.pth")
+    return vit_model
 
 
-def train(train_dataset: str, test_dataset: str, num_samples: int = 10000):
-    info(f"[DoCoF] 训练集：{train_dataset}")
-    info(f"[DoCoF] 测试集：{test_dataset}")
+def train(dataset: str, num_samples: int = 1000):
+    info(f"[DoCoF] 训练集：{dataset}")
 
-    train_dataset_fake = SubsetVideoFeatureDataset(
-        VideoFeatureDataset(dataset_paths[train_dataset]), list(range(num_samples))
+    dataset_fake = SubsetVideoFeatureDataset(
+        VideoFeatureDataset(dataset_paths[dataset]), list(range(num_samples))
     )
-    train_dataset_real = SubsetVideoFeatureDataset(
+    dataset_real = SubsetVideoFeatureDataset(
         VideoFeatureDataset(dataset_paths["MSR-VTT"]), list(range(num_samples))
     )
-    train_dataset = torch.utils.data.ConcatDataset(
-        [train_dataset_fake, train_dataset_real]
-    )
+    # 合并数据集
+    dataset = torch.utils.data.ConcatDataset([dataset_fake, dataset_real])
 
-    test_dataset = VideoFeatureDataset(dataset_paths[test_dataset])
+    # 分割数据集
+    train_dataset, val_dataset = split_dataset(dataset)
 
-    _train(train_dataset, test_dataset)
+    model = _train(train_dataset, val_dataset)
+
+    # 保存模型
+    torch.save(model.state_dict(), f"{cwd}/models/{dataset}.pth")
 
 
 # def train_on(train_features_fake_path: str, test_features_path: str):
@@ -94,39 +96,6 @@ def train(train_dataset: str, test_dataset: str, num_samples: int = 10000):
 #     # torch.save(vit_model.state_dict(), f"{cwd}/models/vit.pth")
 
 
-# def __archive():
-#     # 划分数据集
-#     train_dataset, test_dataset = split_dataset(video_detection_dataset)
-
-#     # 模型小结
-#     summary(
-#         model=vit_model,
-#         # input_size=(4, 1, 2048),
-#         # col_names=["input_size", "output_size", "num_params", "trainable"],
-#         # col_width=20,
-#         # row_settings=["var_names"],
-#     )
-
-#     # 数据加载器
-#     train_dataloader, test_dataloader = dataloader(train_dataset, test_dataset)
-
-#     # 开始训练
-#     torch.manual_seed(seed)
-#     torch.cuda.manual_seed(seed)
-#     model = engine.train(
-#         model=vit_model,
-#         train_dataloader=train_dataloader,
-#         test_dataloader=test_dataloader,
-#         optimizer=optimizer,
-#         loss_fn=loss_fn,
-#         epochs=10,
-#         device=device,
-#     )
-
-#     # 保存模型
-#     torch.save(vit_model.state_dict(), f"{cwd}/models/vit.pth")
-
-
 if __name__ == "__main__":
     """"""
 
@@ -140,6 +109,4 @@ if __name__ == "__main__":
     info(f"[DoCoF] 训练数据集：{train_dataset}")
 
     for train_dataset_name in train_dataset:
-        for test_dataset_name in dataset_paths.keys():
-            if train_dataset_name != test_dataset_name:
-                train(train_dataset_name, test_dataset_name)
+        train(train_dataset_name)

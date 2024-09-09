@@ -56,22 +56,3 @@ batch_size = 64
 num_workers = 0
 
 seed = 42
-
-
-def makeFrames(video_path, parent_path, count=1):
-    vidcap = cv2.VideoCapture(str(video_path))
-
-    success, image = vidcap.read()
-
-    # count 为 1 就是连续读取 4 帧
-    # count 为 2 就是连续读取 4 帧（_0），再连续读取 4 帧（_1）
-    for itr in range(0, count):
-        path = Path(f"{str(parent_path)}_{itr}")
-
-        if os.path.isdir(path) == False:
-            os.makedirs(path)
-
-        for frame in range(0, 4):
-            frame_path = Path(path, f"frame{frame}.jpg")
-            cv2.imwrite(str(frame_path), image)
-            success, image = vidcap.read()

@@ -1,5 +1,5 @@
 from utils import *
-from torch.utils.data import Dataset, DataLoader, ConcatDataset
+from torch.utils.data import Dataset, DataLoader, ConcatDataset, random_split
 
 DATASETS_DIR = "/root/jyj/proj/decof/datasets"
 FEATURES_DIR = "/root/jyj/proj/decof/features"
@@ -104,7 +104,7 @@ class VideoFeatureDataset(Dataset):
         self.fake = 1 if "/fake/" in str(dataset_path) else 0
         self.feature = feature
         info(
-            f"[数据集] 初始化 {dataset_path}，样本数量：{len(self)}，标签：{self.fake}"
+            f"[数据集] 初始化数据集 {dataset_path}，样本数量：{len(self)}，标签：{self.fake}"
         )
 
     def __len__(self):
@@ -123,8 +123,7 @@ class VideoFeatureDataset(Dataset):
 
             # 如果已有特征文件则直接加载（速率：4s/万）
             if feature_path.with_suffix(".npy").exists():
-                info(f"[数据集] 加载特征：{feature_path}")
-
+                debug(f"[数据集] 加载特征：{feature_path}")
                 features_array = np.load(feature_path.with_suffix(".npy"))
                 features_tensor = torch.tensor(features_array, dtype=torch.float32)
                 # 如果形状不是 (1, -1)，则 reshape
@@ -136,8 +135,8 @@ class VideoFeatureDataset(Dataset):
                     error(f"[数据集] 重塑特征出错：{e}")
                     error(f"[数据集] 原特征形状：{features_tensor.shape}")
                     error(f"[数据集] 原特征：{features_tensor}")
-
                     # 删除视频和特征文件
+                    info(f"[数据集] 删除视频和特征文件：{feature_path.with_suffix(".npy")}")
                     self.files[idx].unlink()
                     feature_path.with_suffix(".npy").unlink()
                     return None
@@ -146,12 +145,12 @@ class VideoFeatureDataset(Dataset):
                 return features_tensor, self.fake
 
             # 读入视频文件
-            cap = cv2.VideoCapture(self.files[idx])
-            debug(f"[数据集] 读取视频耗时：{time.time() - t:.2f} 秒")
-
-            # 用 cv2 读取视频帧
-            frames = []
             try:
+                cap = cv2.VideoCapture(self.files[idx])
+                debug(f"[数据集] 读取视频耗时：{time.time() - t:.2f} 秒")
+
+                # 用 cv2 读取视频帧
+                frames = []
                 for i in range(NUM_FRAMES):
                     ret, frame = cap.read()
                     if not ret:
@@ -161,6 +160,7 @@ class VideoFeatureDataset(Dataset):
             except:
                 error(f"[数据集] 读取视频帧出错：{self.files[idx]}")
                 # 删除视频文件
+                info(f"[数据集] 删除视频文件：{self.files[idx]}")
                 self.files[idx].unlink()
                 return None
             debug(f"[数据集] 读取视频帧耗时：{time.time() - t:.2f} 秒")
@@ -179,12 +179,12 @@ class VideoFeatureDataset(Dataset):
             except Exception as e:
                 error(f"[数据集] 转换特征为 NumPy 数组出错：{e}")
                 error(f"[数据集] 提取特征：{features}")
-
                 # 删除视频和特征文件
+                info(f"[数据集] 删除视频和特征文件：{feature_path.with_suffix(".npy")}")
                 self.files[idx].unlink()
                 feature_path.with_suffix(".npy").unlink()
                 return None
-            info(f"[数据集] 转换视频特征耗时：{time.time() - t:.2f} 秒")
+            debug(f"[数据集] 转换视频特征耗时：{time.time() - t:.2f} 秒")
 
             # 保存特征，直接保存 NumPy 数组
             feature_path.parent.mkdir(parents=True, exist_ok=True)
@@ -208,8 +208,8 @@ class SubsetVideoFeatureDataset(Dataset):
         super().__init__()
         self.dataset = dataset
         # 有效 indices
-        dataset_indices = set(range(len(dataset)))
-        self.indices = sorted(list(set(indices) & dataset_indices))
+        self.indices = sorted(list(set(indices) & set(range(len(dataset)))))
+        info(f'[数据集] 初始化子数据集 {dataset.dataset_path}，样本数量：{len(self)}，标签：{self.dataset.fake}')
 
     def __len__(self):
         return len(self.indices)
@@ -261,9 +261,10 @@ def split_dataset(dataset: Dataset):
     # 划分训练集和测试集
     train_ratio = 0.8
     train_size = int(len(dataset) * train_ratio)
-    return torch.utils.data.random_split(
+    train_dataset, val_dataset = random_split(
         dataset, [train_size, len(dataset) - train_size]
     )
+    return train_dataset, val_dataset
 
 
 # 使用 collate_fn 过滤无效数据（数据值为 None）
