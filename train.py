@@ -40,8 +40,8 @@ def train_on(train_features_fake_path: str, test_features_path: str):
     info(f"[DoCoF] 测试集标签：{test_label}")
     test_dataset = VideoDetectionDatasetV3(test_features, label=test_label)
 
-    train_dataloader = get_dataloader(train_dataset)
-    test_dataloader = get_dataloader(test_dataset)
+    train_dataloader = dataloader(train_dataset)
+    test_dataloader = dataloader(test_dataset)
 
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
@@ -75,7 +75,7 @@ def __archive():
     )
 
     # 数据加载器
-    train_dataloader, test_dataloader = get_dataloader(train_dataset, test_dataset)
+    train_dataloader, test_dataloader = dataloader(train_dataset, test_dataset)
 
     # 开始训练
     torch.manual_seed(seed)

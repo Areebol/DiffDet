@@ -43,6 +43,7 @@ logger.addHandler(file_handler)
 
 info = logging.info
 debug = logging.debug
+error = logging.error
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 clip_model, clip_preprocess = None, None

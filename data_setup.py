@@ -95,7 +95,7 @@ class VideoDetectionDatasetV3(Dataset):
         return torch.tensor(self.inputs[idx], dtype=torch.float32), self.label
 
 
-class VideoDataset(Dataset):
+class VideoFeatureDataset(Dataset):
     def __init__(self, dataset_path, feature="clip"):
         super().__init__()
         self.files = list(Path(dataset_path).glob("*"))
@@ -109,56 +109,77 @@ class VideoDataset(Dataset):
         return len(self.files)
 
     def __getitem__(self, idx):
-        t = time.time()
+        try:
+            t = time.time()
 
-        # 构建特征文件路径
-        feature_path = Path(
-            str(self.files[idx]).replace(DATASETS_DIR, f"{FEATURES_DIR}/{self.feature}")
-        )
+            # 构建特征文件路径
+            feature_path = Path(
+                str(self.files[idx]).replace(
+                    DATASETS_DIR, f"{FEATURES_DIR}/{self.feature}"
+                )
+            )
 
-        # 如果已有特征文件则直接加载
-        if feature_path.with_suffix(".npy").exists():
-            features_array = np.load(feature_path.with_suffix(".npy"))
+            # 如果已有特征文件则直接加载（速率：4s/万）
+            if feature_path.with_suffix(".npy").exists():
+                features_array = np.load(feature_path.with_suffix(".npy"))
+                features_tensor = torch.tensor(features_array, dtype=torch.float32)
+                debug(f"[数据集] 加载特征耗时：{time.time() - t:.2f} 秒")
+                return features_tensor, self.fake
+
+            # 读入视频文件
+            cap = cv2.VideoCapture(self.files[idx])
+            debug(f"[数据集] 读取视频耗时：{time.time() - t:.2f} 秒")
+
+            # 用 cv2 读取视频帧
+            frames = []
+            for i in range(NUM_FRAMES):
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                frames.append(frame)
+            cap.release()
+            debug(f"[数据集] 读取视频帧耗时：{time.time() - t:.2f} 秒")
+
+            # 用 CLIP 提取特征（速率：1500s/万个）
+            features = []
+            for frame in frames:
+                img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                if FEATURE == "clip":
+                    features.append(clip_feature(img).detach().cpu().numpy())
+            debug(f"[数据集] 提取视频特征耗时：{time.time() - t:.2f} 秒")
+
+            # 将特征列表转换为单一的 NumPy 数组
+            features_array = np.array(features).flatten()
+            debug(f"[数据集] 转换视频特征耗时：{time.time() - t:.2f} 秒")
+
+            # 保存特征，直接保存 NumPy 数组
+            feature_path.parent.mkdir(parents=True, exist_ok=True)
+            np.save(feature_path.with_suffix(".npy"), features_array)
+            debug(f"[数据集] 保存特征耗时：{time.time() - t:.2f} 秒")
+
+            # 转换为张量
             features_tensor = torch.tensor(features_array, dtype=torch.float32)
-            debug(f"[数据集] 加载特征耗时：{time.time() - t:.2f} 秒")
+            debug(f"[数据集] 转换视频特征为张量耗时：{time.time() - t:.2f} 秒")
+
             return features_tensor, self.fake
 
-        # 读入视频文件
-        cap = cv2.VideoCapture(self.files[idx])
-        debug(f"[数据集] 读取视频耗时：{time.time() - t:.2f} 秒")
+        except Exception as e:
+            error(f"[数据集] 加载数据集出错：{e}")
+            return None
 
-        # 用 cv2 读取视频帧
-        frames = []
-        for i in range(NUM_FRAMES):
-            ret, frame = cap.read()
-            if not ret:
-                break
-            frames.append(frame)
-        cap.release()
-        debug(f"[数据集] 读取视频帧耗时：{time.time() - t:.2f} 秒")
 
-        # 用 CLIP 提取特征
-        features = []
-        for frame in frames:
-            img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            if FEATURE == "clip":
-                features.append(clip_feature(img).detach().cpu().numpy())
-        debug(f"[数据集] 提取视频特征耗时：{time.time() - t:.2f} 秒")
+# 切片子数据集
+class SubsetVideoFeatureDataset(Dataset):
+    def __init__(self, dataset: VideoFeatureDataset, indices: list):
+        super().__init__()
+        self.dataset = dataset
+        self.indices = indices
 
-        # 将特征列表转换为单一的 NumPy 数组
-        features_array = np.array(features).flatten()
-        debug(f"[数据集] 转换视频特征耗时：{time.time() - t:.2f} 秒")
+    def __len__(self):
+        return len(self.indices)
 
-        # 保存特征，直接保存 NumPy 数组
-        feature_path.parent.mkdir(parents=True, exist_ok=True)
-        np.save(feature_path.with_suffix(".npy"), features_array)
-        debug(f"[数据集] 保存特征耗时：{time.time() - t:.2f} 秒")
-
-        # 转换为张量
-        features_tensor = torch.tensor(features_array, dtype=torch.float32)
-        debug(f"[数据集] 转换视频特征为张量耗时：{time.time() - t:.2f} 秒")
-
-        return features_tensor, self.fake
+    def __getitem__(self, idx):
+        return self.dataset[self.indices[idx]]
 
 
 def batch_get_features_v1(video_detection_dataset_v1: VideoDetectionDatasetV1):
@@ -210,12 +231,21 @@ def split_dataset(video_detection_dataset_v2: VideoDetectionDatasetV2):
     return train_dataset, test_dataset
 
 
-def get_dataloader(dataset: Dataset):
+def dataloader(dataset: Dataset):
     """传入数据集构建数据加载器"""
-    dataloader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
+
+    # 使用 collate_fn 过滤无效数据（数据值为 None）
+    def collate_fn(batch):
+        batch = list(filter(lambda x: x is not None, batch))
+        return torch.utils.data.dataloader.default_collate(batch)
+
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        collate_fn=collate_fn,
     )
-    return dataloader
 
 
 if __name__ == "__main__":
@@ -223,9 +253,10 @@ if __name__ == "__main__":
 
     # 加载所有数据集
     for dataset_name, dataset_path in dataset_paths.items():
-        dataset = VideoDataset(dataset_path)
-        for i in range(min(30000, len(dataset))):
-            dataset[i]
+        dataset = VideoFeatureDataset(dataset_path)
+        sub_dataset = SubsetVideoFeatureDataset(dataset, list(range(30000)))
+        for data in sub_dataset:
+            data
 
     # for dataset_path in glob(f"{cwd}/datasets/*/*"):
     #     info(f"[CLIP 特征] 为 {dataset_path} 提取特征")
