@@ -96,10 +96,11 @@ class VideoDetectionDatasetV3(Dataset):
 
 
 class VideoDataset(Dataset):
-    def __init__(self, dataset_path):
+    def __init__(self, dataset_path, feature="clip"):
         super().__init__()
         self.files = list(Path(dataset_path).glob("*"))
         self.fake = 1 if "/fake/" in str(dataset_path) else 0
+        self.feature = feature
         info(
             f"[数据集] 初始化 {dataset_path}，样本数量：{len(self)}，标签：{self.fake}"
         )
@@ -110,16 +111,17 @@ class VideoDataset(Dataset):
     def __getitem__(self, idx):
         t = time.time()
 
+        # 构建特征文件路径
+        feature_path = Path(
+            str(self.files[idx]).replace(DATASETS_DIR, f"{FEATURES_DIR}/{self.feature}")
+        )
+
         # 如果已有特征文件则直接加载
-        if FEATURE == "clip":
-            feature_path = Path(
-                str(self.files[idx]).replace(DATASETS_DIR, f"{FEATURES_DIR}/clip")
-            )
-            if feature_path.with_suffix(".npy").exists():
-                features_array = np.load(feature_path.with_suffix(".npy"))
-                features_tensor = torch.tensor(features_array, dtype=torch.float32)
-                debug(f"[数据集] 加载特征耗时：{time.time() - t:.2f} 秒")
-                return features_tensor, self.fake
+        if feature_path.with_suffix(".npy").exists():
+            features_array = np.load(feature_path.with_suffix(".npy"))
+            features_tensor = torch.tensor(features_array, dtype=torch.float32)
+            debug(f"[数据集] 加载特征耗时：{time.time() - t:.2f} 秒")
+            return features_tensor, self.fake
 
         # 读入视频文件
         cap = cv2.VideoCapture(self.files[idx])
@@ -147,17 +149,12 @@ class VideoDataset(Dataset):
         features_array = np.array(features).flatten()
         debug(f"[数据集] 转换视频特征耗时：{time.time() - t:.2f} 秒")
 
-        # 保存特征
-        if FEATURE == "clip":
-            # 直接保存 NumPy 数组
-            save_path = Path(
-                str(self.files[idx]).replace(DATASETS_DIR, f"{FEATURES_DIR}/clip")
-            )
-            # 如果目录不存在则创建
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            np.save(save_path.with_suffix(".npy"), features_array)
-            debug(f"[数据集] 保存特征耗时：{time.time() - t:.2f} 秒")
+        # 保存特征，直接保存 NumPy 数组
+        feature_path.parent.mkdir(parents=True, exist_ok=True)
+        np.save(feature_path.with_suffix(".npy"), features_array)
+        debug(f"[数据集] 保存特征耗时：{time.time() - t:.2f} 秒")
 
+        # 转换为张量
         features_tensor = torch.tensor(features_array, dtype=torch.float32)
         debug(f"[数据集] 转换视频特征为张量耗时：{time.time() - t:.2f} 秒")
 
@@ -203,14 +200,6 @@ def clip_features_from_dataset(dataset_dir: str) -> np.ndarray:
     return clip_features
 
 
-def load_features(input_path: str, output_path: str) -> VideoDetectionDatasetV2:
-    input = np.load(input_path)
-    labels = np.load(output_path)
-    input = input.reshape((len(input), 1, 2048))  # NUM_SAMPLES, 1, 2048
-    video_detection_dataset_v2 = VideoDetectionDatasetV2(input, labels)
-    return video_detection_dataset_v2
-
-
 def split_dataset(video_detection_dataset_v2: VideoDetectionDatasetV2):
     # 划分训练集和测试集
     train_size = int(0.8 * len(video_detection_dataset_v2))
@@ -229,26 +218,14 @@ def get_dataloader(dataset: Dataset):
     return dataloader
 
 
-def __archive():
-    real_paths = glob(f"{cwd}/realfake-video-dataset/real/*/*")
-    fake_paths = glob(f"{cwd}/realfake-video-dataset/fake/*/*")
-    paths = np.concatenate((real_paths, fake_paths))
-    info(f"[数据集路径] 真实视频数量：{len(real_paths)}，假视频数量：{len(fake_paths)}")
-    info(f"[数据集路径] 路径展示:{paths[:5]}")
-    labels = np.concatenate((np.zeros(len(real_paths)), np.ones(len(fake_paths))))
-    info(f"[数据集路径] 标签数量：{len(labels)}")
-
-    video_detection_dataset_v1 = VideoDetectionDatasetV1(paths, labels)
-    clip_features, labels = batch_get_features_v1(video_detection_dataset_v1)
-    np.save("clip_input", clip_features)
-    np.save("clip_output", labels)
-
-
 if __name__ == "__main__":
     """"""
-    ds = VideoDataset(dataset_paths["MSR-VTT"])
-    for i in range(10000):
-        ds[i]
+
+    # 加载所有数据集
+    for dataset_name, dataset_path in dataset_paths.items():
+        dataset = VideoDataset(dataset_path)
+        for i in range(min(30000, len(dataset))):
+            dataset[i]
 
     # for dataset_path in glob(f"{cwd}/datasets/*/*"):
     #     info(f"[CLIP 特征] 为 {dataset_path} 提取特征")
