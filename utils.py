@@ -15,6 +15,7 @@ import clip
 from PIL import Image
 import cv2
 import time
+import multiprocessing
 
 from going_modular.going_modular import data_setup, engine
 
@@ -23,7 +24,7 @@ import datetime
 
 cwd = Path(__file__).parent
 
-DEBUG = True
+# DEBUG = True
 
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
@@ -51,7 +52,8 @@ clip_model, clip_preprocess = None, None
 # 图像输入尺寸
 input_shape = (224, 224)
 batch_size = 64
-num_workers = 32
+# num_workers = 4
+num_workers = 0
 
 seed = 42
 
