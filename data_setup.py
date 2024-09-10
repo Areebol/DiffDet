@@ -41,13 +41,6 @@ dataset_paths = {
 }
 
 
-# 图像预处理转换
-transform = transforms.Compose(
-    [
-        transforms.Resize(input_shape, interpolation=InterpolationMode.BICUBIC),
-    ]
-)
-
 # 特征提取 CLIP 模型
 clip_model, clip_preprocess = clip.load("ViT-B/32", device=device)
 """
@@ -55,11 +48,20 @@ clip_preprocess 自带预处理
 Compose([
         Resize(n_px, interpolation=BICUBIC),
         CenterCrop(n_px),
-        _convert_image_to_rgb,
+        _convert_image_to_rgb,  # image.convert("RGB")
         ToTensor(),
         Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711)),
 ])
 """
+
+
+def clip_feature(img: Image) -> torch.Tensor:
+    """提取图像的 CLIP 特征"""
+    # 对图像进行预处理
+    img = clip_preprocess(img).unsqueeze(0).to(device)
+    # 用 CLIP 提取特征
+    features = clip_model.encode_image(img)
+    return features  # torch.Size([1, 512])
 
 
 # 特征提取 Diffusion 模型
@@ -70,11 +72,28 @@ diffusion_model = diffusion_model.to(device)
 diffusion_model.eval()
 diffusion_preprocess = transforms.Compose(
     [
-        transforms.Resize(input_shape, interpolation=InterpolationMode.BICUBIC),
+        transforms.Resize((256, 256), interpolation=InterpolationMode.BICUBIC),
         transforms.ToTensor(),
-        transforms.Lambda(lambda x: (x / 255.0) * 2.0 - 1.0),
+        transforms.Lambda(lambda x: x * 2 - 1),
     ]
 )
+
+
+def dnf_feature(x: torch.Tensor) -> torch.Tensor:
+    total_timesteps = 1000
+    step = 20
+    seq = list(map(int, np.linspace(0, total_timesteps, step + 1)))
+
+    # 若输入为单张图像，而非一个图像批量，则添加第一个维度
+    if x.dim() == 3:
+        x = x.unsqueeze(0)
+
+    x = x.to(device)
+    with torch.no_grad():
+        n = x.size(0)  # 获取输入张量 x 的第一个维度的大小，即批量大小
+        t = (torch.ones(n) * seq[0]).to(device)
+        et = diffusion_model(x, t)
+    return et
 
 
 class VideoFeatureDataset(Dataset):
@@ -154,19 +173,15 @@ class VideoFeatureDataset(Dataset):
             for frame in frames:
                 img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
 
-                return img
-
                 if self.feature == "clip":
+                    # CLIP 中自带图像预处理
                     features.append(clip_feature(img).detach().cpu().numpy())
 
                 elif self.feature == "diffusion":
-                    try:
-                        sample = read_image(path).float()
-                    except:
-                        print(path)
+                    # 对图像进行预处理
+                    img: torch.Tensor = diffusion_preprocess(img)
+                    features.append(dnf_feature(img).detach().cpu().numpy())
 
-                    sample = transform(sample)
-                    sample = (sample / 255.0) * 2.0 - 1.0
             debug(f"[数据集] 提取视频特征耗时：{time.time() - t:.2f} 秒")
 
             # 将特征列表转换为单一的 NumPy 数组
@@ -220,15 +235,6 @@ class SubsetVideoFeatureDataset(Dataset):
 
     def __repr__(self) -> str:
         return f"{self.dataset.dataset_name} ({len(self)})"
-
-
-def clip_feature(img: Image) -> torch.Tensor:
-    """提取图像的 CLIP 特征"""
-    # 对图像进行预处理
-    img = clip_preprocess(img).unsqueeze(0).to(device)
-    # 用 CLIP 提取特征
-    features = clip_model.encode_image(img)
-    return features  # torch.Size([1, 512])
 
 
 def split_dataset(dataset: Dataset):
@@ -311,17 +317,6 @@ def dataloader(dataset: Dataset):
 #         return sample, save_path
 
 
-def inversion_first(x: torch.Tensor):
-    total_timesteps = 1000
-    steps = 20
-    seq = list(map(int, np.linspace(0, total_timesteps, steps + 1)))
-    with torch.no_grad():
-        n = x.size(0)  # 获取输入张量 x 的第一个维度的大小，通常是批量大小
-        t = (torch.ones(n) * seq[0]).to(x.device)
-        et = diffusion_model(x, t)
-    return et
-
-
 # for x, save_path in tqdm(dataloader):
 #     x = x.to(device)
 #     dnf = inversion_first(x)
@@ -335,9 +330,13 @@ if __name__ == "__main__":
     dataset = VideoFeatureDataset("DynamicCrafter")
     datapoint: Image = dataset[0]
     # 打印 Image 中的所有数值，平均值和最大值
+    # 将 Image 转为 np.array
+    np_array = np.array(datapoint)
+    print(np_array, np_array.mean(), np_array.max())
     # 将 Image 转为 tensor
-    tensor = transforms.ToTensor()(datapoint)
-    print(datapoint, datapoint.mean(), datapoint.max())
+    tensor = transforms.ToTensor()(datapoint) * 2 - 1
+    # 归一化到 -1, 1
+    print(tensor, tensor.mean(), tensor.max())
     exit()
 
     # # 加载所有数据集

@@ -49,9 +49,6 @@ error = logging.error
 device = "cuda" if torch.cuda.is_available() else "cpu"
 clip_model, clip_preprocess = None, None
 
-# 图像输入尺寸
-# input_shape = (224, 224)
-input_shape = (256, 256)
 batch_size = 64
 # num_workers = 4
 num_workers = 0
