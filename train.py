@@ -40,14 +40,14 @@ def _train(train_dataset: Dataset, test_dataset: Dataset):
     return vit_model
 
 
-def train(dataset_name: str, num_samples: int = 1000):
+def train(dataset_name: str, feature="dnf", num_samples: int = 1000):
     info(f"[DoCoF] 训练集：{dataset_name}")
 
     dataset_fake = SubsetVideoFeatureDataset(
-        VideoFeatureDataset(dataset_name), list(range(num_samples))
+        VideoFeatureDataset(dataset_name, feature), list(range(num_samples))
     )
     dataset_real = SubsetVideoFeatureDataset(
-        VideoFeatureDataset("MSR-VTT"), list(range(num_samples))
+        VideoFeatureDataset("MSR-VTT", feature), list(range(num_samples))
     )
     # 合并数据集
     dataset = ConcatDataset([dataset_fake, dataset_real])
@@ -59,7 +59,7 @@ def train(dataset_name: str, num_samples: int = 1000):
     model = _train(train_dataset, val_dataset)
 
     # 保存模型
-    torch.save(model.state_dict(), f"{cwd}/models/{dataset_name}.pth")
+    torch.save(model.state_dict(), f"{cwd}/models/{feature}/{dataset_name}.pth")
 
 
 def evaluate(train_dataset_name: str, test_dataset_name: str, num_samples: int = 1000):
@@ -106,13 +106,13 @@ if __name__ == "__main__":
 
     info(f"[DoCoF] 训练数据集：{train_dataset}")
 
-    # for train_dataset_name in train_dataset:
-    #     train(train_dataset_name)
-
     for train_dataset_name in train_dataset:
-        for test_dataset_name in dataset_paths.keys():
-            acc = evaluate(train_dataset_name, test_dataset_name)
-            # 写入文件
-            open(f"{cwd}/results/{experiment_name}.csv", "a").write(
-                f"{train_dataset_name},{test_dataset_name},{acc:.2f}\n"
-            )
+        train(train_dataset_name)
+
+    # for train_dataset_name in train_dataset:
+    #     for test_dataset_name in dataset_paths.keys():
+    #         acc = evaluate(train_dataset_name, test_dataset_name)
+    #         # 写入文件
+    #         open(f"{cwd}/results/{experiment_name}.csv", "a").write(
+    #             f"{train_dataset_name},{test_dataset_name},{acc:.2f}\n"
+    #         )

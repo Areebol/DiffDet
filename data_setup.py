@@ -105,7 +105,7 @@ class VideoFeatureDataset(Dataset):
         self.fake = 1 if "/fake/" in str(self.dataset_path) else 0
         self.feature = feature
         info(
-            f"[数据集] 初始化数据集 {self.dataset_name}，总样本数量：{len(self)}，标签：{self.fake}"
+            f"[数据集] 初始化数据集 {self.dataset_name}，特征：{self.feature}，总样本数量：{len(self)}，标签：{self.fake}"
         )
 
     def __len__(self):
@@ -195,7 +195,7 @@ class VideoFeatureDataset(Dataset):
 
                     # 将 DNF 特征缩放成 224*224 以输入 CLIP 模型
                     feature_dnf_rz = nn.functional.interpolate(
-                        feature_dnf, (224, 224), mode="bilinear"
+                        feature_dnf, (224, 224), mode="bicubic"
                     )
                     # 使用 CLIP 提取特征
                     feature_clip: torch.Tensor = clip_model.encode_image(feature_dnf_rz)
@@ -250,7 +250,7 @@ class SubsetVideoFeatureDataset(Dataset):
         # 有效 indices
         self.indices = sorted(list(set(indices) & set(range(len(dataset)))))
         info(
-            f"[数据集] 初始化子数据集 {dataset.dataset_path}，样本数量：{len(self)}，标签：{self.dataset.fake}"
+            f"[数据集] 初始化子数据集 {self.dataset.dataset_path}，{self.dataset.feature}，样本数量：{len(self)}，标签：{self.dataset.fake}"
         )
 
     def __len__(self):
