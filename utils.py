@@ -24,7 +24,7 @@ import datetime
 
 cwd = Path(__file__).parent
 
-DEBUG = True
+# DEBUG = True
 
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
