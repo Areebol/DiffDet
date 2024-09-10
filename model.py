@@ -18,3 +18,5 @@ class ViT(nn.Module):
         x = self.encoder_layer(x)
         x = self.classifier(x[:, 0])
         return x
+
+

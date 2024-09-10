@@ -3,7 +3,9 @@
 models
 *test*
 logs
+*.log
 out
 *GenVideo*
 features
-*.log
+*.logs
+dnf

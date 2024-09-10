@@ -6,10 +6,17 @@ from torch.utils.data import (
     random_split,
     default_collate,
 )
+from diffusion import Diffusion
+from torchvision.utils import save_image
+from torchvision.io import read_image
+from torchvision.transforms.functional import InterpolationMode
 
 NUM_FRAMES = 8
 FEATURE_LEN = NUM_FRAMES * 512
 FEATURE = "clip"
+
+load_size = 256
+crop_size = 224
 
 DATASETS_DIR = "/root/jyj/proj/decof/datasets"
 FEATURES_DIR = "/root/jyj/proj/decof/features"
@@ -37,12 +44,37 @@ dataset_paths = {
 # 图像预处理转换
 transform = transforms.Compose(
     [
-        transforms.Resize(input_shape),
+        transforms.Resize(input_shape, interpolation=InterpolationMode.BICUBIC),
     ]
 )
 
 # 特征提取 CLIP 模型
 clip_model, clip_preprocess = clip.load("ViT-B/32", device=device)
+"""
+clip_preprocess 自带预处理
+Compose([
+        Resize(n_px, interpolation=BICUBIC),
+        CenterCrop(n_px),
+        _convert_image_to_rgb,
+        ToTensor(),
+        Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711)),
+])
+"""
+
+
+# 特征提取 Diffusion 模型
+diffusion_model = Diffusion()
+diffusion_ckpt = f"{cwd}/models/dnf_diffusion.ckpt"  # Diffusion trained on LSUN Bedroom
+diffusion_model.load_state_dict(torch.load(diffusion_ckpt, weights_only=True))
+diffusion_model = diffusion_model.to(device)
+diffusion_model.eval()
+diffusion_preprocess = transforms.Compose(
+    [
+        transforms.Resize(input_shape, interpolation=InterpolationMode.BICUBIC),
+        transforms.ToTensor(),
+        transforms.Lambda(lambda x: (x / 255.0) * 2.0 - 1.0),
+    ]
+)
 
 
 class VideoFeatureDataset(Dataset):
@@ -71,30 +103,30 @@ class VideoFeatureDataset(Dataset):
                 )
             )
 
-            # 如果已有特征文件则直接加载（速率：4s/万）
-            if feature_path.with_suffix(".npy").exists():
-                debug(f"[数据集] 加载特征：{feature_path}")
-                features_array = np.load(feature_path.with_suffix(".npy"))
-                features_tensor = torch.tensor(features_array, dtype=torch.float32)
-                # 如果形状不是 (1, -1)，则 reshape
-                try:
-                    debug(f"[数据集] 原特征形状：{features_tensor.shape}")
-                    features_tensor = features_tensor.reshape(1, FEATURE_LEN)
-                    debug(f"[数据集] 重塑后特征形状：{features_tensor.shape}")
-                except Exception as e:
-                    error(f"[数据集] 重塑特征出错：{e}")
-                    error(f"[数据集] 原特征形状：{features_tensor.shape}")
-                    error(f"[数据集] 原特征：{features_tensor}")
-                    # 删除视频和特征文件
-                    info(
-                        f"[数据集] 删除视频和特征文件：{feature_path.with_suffix('.npy')}"
-                    )
-                    self.files[idx].unlink()
-                    feature_path.with_suffix(".npy").unlink()
-                    return None
+            # # 如果已有特征文件则直接加载（速率：4s/万）
+            # if feature_path.with_suffix(".npy").exists():
+            #     debug(f"[数据集] 加载特征：{feature_path}")
+            #     features_array = np.load(feature_path.with_suffix(".npy"))
+            #     features_tensor = torch.tensor(features_array, dtype=torch.float32)
+            #     # 如果形状不是 (1, -1)，则 reshape
+            #     try:
+            #         debug(f"[数据集] 原特征形状：{features_tensor.shape}")
+            #         features_tensor = features_tensor.reshape(1, FEATURE_LEN)
+            #         debug(f"[数据集] 重塑后特征形状：{features_tensor.shape}")
+            #     except Exception as e:
+            #         error(f"[数据集] 重塑特征出错：{e}")
+            #         error(f"[数据集] 原特征形状：{features_tensor.shape}")
+            #         error(f"[数据集] 原特征：{features_tensor}")
+            #         # 删除视频和特征文件
+            #         info(
+            #             f"[数据集] 删除视频和特征文件：{feature_path.with_suffix('.npy')}"
+            #         )
+            #         self.files[idx].unlink()
+            #         feature_path.with_suffix(".npy").unlink()
+            #         return None
 
-                debug(f"[数据集] 加载特征耗时：{time.time() - t:.2f} 秒")
-                return features_tensor, self.fake
+            #     debug(f"[数据集] 加载特征耗时：{time.time() - t:.2f} 秒")
+            #     return features_tensor, self.fake
 
             # 读入视频文件
             try:
@@ -121,8 +153,20 @@ class VideoFeatureDataset(Dataset):
             features = []
             for frame in frames:
                 img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-                if FEATURE == "clip":
+
+                return img
+
+                if self.feature == "clip":
                     features.append(clip_feature(img).detach().cpu().numpy())
+
+                elif self.feature == "diffusion":
+                    try:
+                        sample = read_image(path).float()
+                    except:
+                        print(path)
+
+                    sample = transform(sample)
+                    sample = (sample / 255.0) * 2.0 - 1.0
             debug(f"[数据集] 提取视频特征耗时：{time.time() - t:.2f} 秒")
 
             # 将特征列表转换为单一的 NumPy 数组
@@ -181,7 +225,7 @@ class SubsetVideoFeatureDataset(Dataset):
 def clip_feature(img: Image) -> torch.Tensor:
     """提取图像的 CLIP 特征"""
     # 对图像进行预处理
-    img = clip_preprocess(transform(img)).unsqueeze(0).to(device)
+    img = clip_preprocess(img).unsqueeze(0).to(device)
     # 用 CLIP 提取特征
     features = clip_model.encode_image(img)
     return features  # torch.Size([1, 512])
@@ -214,9 +258,87 @@ def dataloader(dataset: Dataset):
     )
 
 
+# class _DNFDataset(datasets.ImageFolder):
+#     def __init__(self, opt):
+#         super().__init__(opt.dataroot)
+
+#         self.root = opt.dataroot
+#         self.save_root = opt.dataroot + opt.postfix
+#         os.makedirs(self.save_root, exist_ok=True)
+#         print(f"[DNF Dataset]: From {self.root} to {self.save_root}")
+#         self.paths = []
+#         for foldername, _, fns in os.walk(self.root):
+#             if not os.path.exists(foldername.replace(self.root, self.save_root)):
+#                 os.mkdir(foldername.replace(self.root, self.save_root))
+#             for fn in fns:
+#                 path = os.path.join(foldername, fn)
+#                 if not os.path.exists(path.replace(self.root, self.save_root)):
+#                     self.paths.append(path)
+
+#         rz_func = transforms.Resize(
+#             (opt.loadSize, opt.loadSize), interpolation=rz_dict[opt.rz_interp]
+#         )
+#         aug_func = transforms.Lambda(lambda img: img)
+
+#         self.transform = transforms.Compose(
+#             [
+#                 rz_func,
+#                 aug_func,
+#             ]
+#         )
+
+#     def __len__(self):
+#         return len(self.paths)
+
+#     def __getitem__(self, index):
+
+#         path = self.paths[index]
+#         save_path = path.replace(self.root, self.save_root)
+#         try:
+#             sample = read_image(path).float()
+
+#         except:
+#             print(path)
+
+#         if sample.shape[0] == 1:
+#             sample = torch.cat([sample] * 3, dim=0)
+#         elif sample.shape[0] == 4:
+#             sample = sample[:3, :, :]
+
+#         sample = self.transform(sample)
+#         sample = (sample / 255.0) * 2.0 - 1.0
+
+#         return sample, save_path
+
+
+def inversion_first(x: torch.Tensor):
+    total_timesteps = 1000
+    steps = 20
+    seq = list(map(int, np.linspace(0, total_timesteps, steps + 1)))
+    with torch.no_grad():
+        n = x.size(0)  # 获取输入张量 x 的第一个维度的大小，通常是批量大小
+        t = (torch.ones(n) * seq[0]).to(x.device)
+        et = diffusion_model(x, t)
+    return et
+
+
+# for x, save_path in tqdm(dataloader):
+#     x = x.to(device)
+#     dnf = inversion_first(x)
+#     for idx, item in enumerate(dnf):
+#         save_image(item, save_path[idx])
+
+
 if __name__ == "__main__":
     """"""
-    multiprocessing.set_start_method("spawn")
+    # 加载数据集
+    dataset = VideoFeatureDataset("DynamicCrafter")
+    datapoint: Image = dataset[0]
+    # 打印 Image 中的所有数值，平均值和最大值
+    # 将 Image 转为 tensor
+    tensor = transforms.ToTensor()(datapoint)
+    print(datapoint, datapoint.mean(), datapoint.max())
+    exit()
 
     # # 加载所有数据集
     for dataset_name, dataset_path in dataset_paths.items():
