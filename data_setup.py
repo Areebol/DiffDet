@@ -13,7 +13,7 @@ from torchvision.transforms.functional import InterpolationMode
 
 NUM_FRAMES = 8
 FEATURE_LEN = NUM_FRAMES * 512
-FEATURE = "clip"
+FEATURE = "dnf"
 
 load_size = 256
 crop_size = 224
@@ -97,7 +97,7 @@ def dnf_feature(x: torch.Tensor) -> torch.Tensor:
 
 
 class VideoFeatureDataset(Dataset):
-    def __init__(self, dataset_name: str, feature="clip"):
+    def __init__(self, dataset_name: str, feature=FEATURE):
         super().__init__()
         self.dataset_name = dataset_name
         self.dataset_path = dataset_paths[dataset_name]
@@ -122,30 +122,38 @@ class VideoFeatureDataset(Dataset):
                 )
             )
 
-            # # 如果已有特征文件则直接加载（速率：4s/万）
-            # if feature_path.with_suffix(".npy").exists():
-            #     debug(f"[数据集] 加载特征：{feature_path}")
-            #     features_array = np.load(feature_path.with_suffix(".npy"))
-            #     features_tensor = torch.tensor(features_array, dtype=torch.float32)
-            #     # 如果形状不是 (1, -1)，则 reshape
-            #     try:
-            #         debug(f"[数据集] 原特征形状：{features_tensor.shape}")
-            #         features_tensor = features_tensor.reshape(1, FEATURE_LEN)
-            #         debug(f"[数据集] 重塑后特征形状：{features_tensor.shape}")
-            #     except Exception as e:
-            #         error(f"[数据集] 重塑特征出错：{e}")
-            #         error(f"[数据集] 原特征形状：{features_tensor.shape}")
-            #         error(f"[数据集] 原特征：{features_tensor}")
-            #         # 删除视频和特征文件
-            #         info(
-            #             f"[数据集] 删除视频和特征文件：{feature_path.with_suffix('.npy')}"
-            #         )
-            #         self.files[idx].unlink()
-            #         feature_path.with_suffix(".npy").unlink()
-            #         return None
+            # 如果已有特征文件则直接加载（速率：4s/万）
+            if self.feature == "clip" and feature_path.with_suffix(".npy").exists():
+                debug(f"[数据集] 加载特征：{feature_path}")
+                features_array = np.load(feature_path.with_suffix(".npy"))
+                features_tensor = torch.tensor(features_array, dtype=torch.float32)
+                # 如果形状不是 (1, -1)，则 reshape
+                try:
+                    debug(f"[数据集] 原特征形状：{features_tensor.shape}")
+                    features_tensor = features_tensor.reshape(1, FEATURE_LEN)
+                    debug(f"[数据集] 重塑后特征形状：{features_tensor.shape}")
+                except Exception as e:
+                    error(f"[数据集] 重塑特征出错：{e}")
+                    error(f"[数据集] 原特征形状：{features_tensor.shape}")
+                    error(f"[数据集] 原特征：{features_tensor}")
+                    # 删除视频和特征文件
+                    info(
+                        f"[数据集] 删除视频和特征文件：{feature_path.with_suffix('.npy')}"
+                    )
+                    self.files[idx].unlink()
+                    feature_path.with_suffix(".npy").unlink()
+                    return None
 
-            #     debug(f"[数据集] 加载特征耗时：{time.time() - t:.2f} 秒")
-            #     return features_tensor, self.fake
+                debug(f"[数据集] 加载特征耗时：{time.time() - t:.2f} 秒")
+                return features_tensor, self.fake
+
+            elif self.feature == "dnf" and feature_path.with_suffix(".pt").exists():
+                debug(f"[数据集] 加载特征：{feature_path}")
+                features = torch.load(
+                    feature_path.with_suffix(".pt"), weights_only=True
+                )
+                debug(f"[数据集] 加载特征耗时：{time.time() - t:.2f} 秒")
+                return features, self.fake
 
             # 读入视频文件
             try:
@@ -170,43 +178,61 @@ class VideoFeatureDataset(Dataset):
 
             # 用 CLIP 提取特征（速率：1500s/万个）
             features = []
-            for frame in frames:
-                img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-
-                if self.feature == "clip":
+            if self.feature == "clip":
+                for frame in frames:
+                    img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
                     # CLIP 中自带图像预处理
                     features.append(clip_feature(img).detach().cpu().numpy())
 
-                elif self.feature == "diffusion":
-                    # 对图像进行预处理
-                    img: torch.Tensor = diffusion_preprocess(img)
-                    features.append(dnf_feature(img).detach().cpu().numpy())
+            elif self.feature == "dnf":
+                for frame in frames:
+                    img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
 
+                    # 对图像进行 DNF 预处理
+                    img: torch.Tensor = diffusion_preprocess(img)
+                    # 提取图像的 DNF 特征
+                    feature_dnf = dnf_feature(img)
+
+                    # 将 DNF 特征缩放成 224*224 以输入 CLIP 模型
+                    feature_dnf_rz = nn.functional.interpolate(
+                        feature_dnf, (224, 224), mode="bilinear"
+                    )
+                    # 使用 CLIP 提取特征
+                    feature_clip: torch.Tensor = clip_model.encode_image(feature_dnf_rz)
+
+                    features.append(feature_clip.detach())
+
+            features = torch.stack(features).reshape(1, FEATURE_LEN).type(torch.float32)
             debug(f"[数据集] 提取视频特征耗时：{time.time() - t:.2f} 秒")
 
-            # 将特征列表转换为单一的 NumPy 数组
-            try:
-                features_array = np.array(features).reshape(1, FEATURE_LEN)
-            except Exception as e:
-                error(f"[数据集] 转换特征为 NumPy 数组出错：{e}")
-                error(f"[数据集] 提取特征：{features}")
-                # 删除视频和特征文件
-                info(f"[数据集] 删除视频和特征文件：{feature_path.with_suffix('.npy')}")
-                self.files[idx].unlink()
-                feature_path.with_suffix(".npy").unlink()
-                return None
-            debug(f"[数据集] 转换视频特征耗时：{time.time() - t:.2f} 秒")
+            # # 将特征列表转换为单一的 NumPy 数组
+            # try:
+            #     features_array = np.array(features).reshape(1, FEATURE_LEN)
+            # except Exception as e:
+            #     error(f"[数据集] 转换特征为 NumPy 数组出错：{e}")
+            #     error(f"[数据集] 提取特征：{features}")
+            #     # 删除视频和特征文件
+            #     info(f"[数据集] 删除视频和特征文件：{feature_path.with_suffix('.npy')}")
+            #     self.files[idx].unlink()
+            #     feature_path.with_suffix(".npy").unlink()
+            #     return None
+            # debug(f"[数据集] 转换视频特征耗时：{time.time() - t:.2f} 秒")
 
-            # 保存特征，直接保存 NumPy 数组
+            # # 保存特征，直接保存 NumPy 数组
+            # feature_path.parent.mkdir(parents=True, exist_ok=True)
+            # np.save(feature_path.with_suffix(".npy"), features_array)
+            # debug(f"[数据集] 保存特征耗时：{time.time() - t:.2f} 秒")
+
+            # # 转换为张量
+            # features_tensor = torch.tensor(features_array, dtype=torch.float32)
+            # debug(f"[数据集] 转换视频特征为张量耗时：{time.time() - t:.2f} 秒")
+
+            # 保存特征
             feature_path.parent.mkdir(parents=True, exist_ok=True)
-            np.save(feature_path.with_suffix(".npy"), features_array)
+            torch.save(features, feature_path.with_suffix(".pt"))
             debug(f"[数据集] 保存特征耗时：{time.time() - t:.2f} 秒")
 
-            # 转换为张量
-            features_tensor = torch.tensor(features_array, dtype=torch.float32)
-            debug(f"[数据集] 转换视频特征为张量耗时：{time.time() - t:.2f} 秒")
-
-            return features_tensor, self.fake
+            return features, self.fake
 
         except Exception as e:
             error(f"[数据集] 加载数据集 {self.dataset_path}[{idx}] 出错：{e}")
@@ -326,23 +352,10 @@ def dataloader(dataset: Dataset):
 
 if __name__ == "__main__":
     """"""
-    # 加载数据集
-    dataset = VideoFeatureDataset("DynamicCrafter")
-    datapoint: Image = dataset[0]
-    # 打印 Image 中的所有数值，平均值和最大值
-    # 将 Image 转为 np.array
-    np_array = np.array(datapoint)
-    print(np_array, np_array.mean(), np_array.max())
-    # 将 Image 转为 tensor
-    tensor = transforms.ToTensor()(datapoint) * 2 - 1
-    # 归一化到 -1, 1
-    print(tensor, tensor.mean(), tensor.max())
-    exit()
-
-    # # 加载所有数据集
+    # 加载所有数据集
     for dataset_name, dataset_path in dataset_paths.items():
         dataset = VideoFeatureDataset(dataset_name)
-        sub_dataset = SubsetVideoFeatureDataset(dataset, list(range(30000)))
+        sub_dataset = SubsetVideoFeatureDataset(dataset, list(range(1000)))
         for data in sub_dataset:
             data
 
