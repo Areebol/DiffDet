@@ -24,7 +24,7 @@ import datetime
 
 cwd = Path(__file__).parent
 
-# DEBUG = True
+DEBUG = True
 
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
@@ -46,7 +46,7 @@ info = logging.info
 debug = logging.debug
 error = logging.error
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+device = "cuda:1" if torch.cuda.is_available() else "cpu"
 clip_model, clip_preprocess = None, None
 
 batch_size = 64
