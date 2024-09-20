@@ -143,11 +143,13 @@ class VideoFeatureDataset(Dataset):
                 return None
 
             debug(f"[数据集] 加载特征耗时：{time.time() - t:.2f} 秒")
-            return features_tensor, self.fake
+            return features_tensor.to(device), self.fake
 
         elif self.feature == "dnf" and feature_path.with_suffix(".pt").exists():
             debug(f"[数据集] 加载特征：{feature_path}")
             features = torch.load(feature_path.with_suffix(".pt"), weights_only=True)
+            features: torch.Tensor = features.to(device)
+            features = features.flatten()
             debug(f"[数据集] 加载特征耗时：{time.time() - t:.2f} 秒")
             return features, self.fake
 

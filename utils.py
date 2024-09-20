@@ -24,7 +24,7 @@ import datetime
 
 cwd = Path(__file__).parent
 
-DEBUG = True
+# DEBUG = True
 
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
@@ -49,8 +49,14 @@ error = logging.error
 device = "cuda" if torch.cuda.is_available() else "cpu"
 clip_model, clip_preprocess = None, None
 
-batch_size = 64
+batch_size = 16
 # num_workers = 4
 num_workers = 0
 
 seed = 42
+
+
+def tensor_detail(x: torch.Tensor):
+    return (
+        f"{x.shape} [{x.device}] ({x.min():.3f} {x.mean():.3f} {x.max():.3f}) {x.dtype}"
+    )
