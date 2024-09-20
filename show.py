@@ -9,15 +9,10 @@ def show(csv_path: str):
 
     # 分别计算 fake 和 real 的平均准确率
     df_real = df[df["Test"] == REAL_DATASET]
-    real_avg = df_real.groupby("Train")["Acc"]
-    # 给列加上列名 Real
-    print(real_avg)
-
     df_fake = df[df["Test"] != REAL_DATASET]
-    fake_avg = df_fake.groupby("Train")["Acc"]
-    print(fake_avg)
 
-    exit()
+    real_avg = df_real.groupby("Train")["Acc"].mean()
+    fake_avg = df_fake.groupby("Train")["Acc"].mean()
 
     # 将两个 Series 合并
     avg = pd.concat([fake_avg, real_avg], axis=1)
@@ -37,5 +32,6 @@ def show(csv_path: str):
     # print(pivot_table)
 
 
-show("results/20240910_190011.csv")
-show("results/20240909_200635.csv")
+show("results/CLIP_1.csv")
+# show("results/DNF_1.csv")
+show("results/DNF_2.csv")

@@ -1,6 +1,8 @@
 from utils import *
 from data_setup import *
-from model import *
+
+# from model import *
+from vit_pytorch.vivit import ViT
 
 # # 模型小结
 # summary(
@@ -10,6 +12,31 @@ from model import *
 #     # col_width=20,
 #     # row_settings=["var_names"],
 # )
+
+# model = MLPViT(
+#     mlp_input_size=3 * 8 * 224 * 224,
+#     mlp_output_size=672,
+#     vit_d_model=672,
+#     vit_num_heads=1,
+#     num_classes=2,
+# ).to(device)
+
+model = ViT(
+    image_size=224,  # image size
+    frames=8,  # number of frames
+    image_patch_size=16,  # image patch size
+    frame_patch_size=2,  # frame patch size
+    num_classes=2,
+    dim=4096,
+    spatial_depth=6,  # depth of the spatial transformer
+    temporal_depth=6,  # depth of the temporal transformer
+    heads=8,
+    mlp_dim=2048,
+    variant="factorized_encoder",  # or 'factorized_self_attention'
+)
+
+summary(model=model)
+# exit()
 
 
 def _train(
@@ -78,14 +105,7 @@ def _train(
 def train_on(dataset_name: str, feature: str = "dnf", num_samples: int = 1000):
     info(f"[DoCoF] 训练集：{dataset_name}")
 
-    model = MLPViT(
-        mlp_input_size=3 * 8 * 224 * 224,
-        mlp_output_size=672,
-        vit_d_model=672,
-        vit_num_heads=1,
-        num_classes=2,
-    )
-
+    global model
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(
         params=model.parameters(), lr=1e-3, betas=(0.9, 0.999), weight_decay=0.1
@@ -131,15 +151,7 @@ def evaluate_on(
         VideoFeatureDataset(test_dataset_name), list(range(num_samples))
     )
 
-    # 加载模型
-    model = MLPViT(
-        mlp_input_size=3 * 8 * 224 * 224,
-        mlp_output_size=672,
-        vit_d_model=672,
-        vit_num_heads=1,
-        num_classes=2,
-    )
-
+    global model
     model.load_state_dict(
         torch.load(f"{cwd}/models/{feature}/{train_dataset_name}.pth")
     )

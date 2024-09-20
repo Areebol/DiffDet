@@ -49,7 +49,7 @@ error = logging.error
 device = "cuda" if torch.cuda.is_available() else "cpu"
 clip_model, clip_preprocess = None, None
 
-batch_size = 16
+batch_size = 64
 # num_workers = 4
 num_workers = 0
 
