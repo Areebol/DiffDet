@@ -34,4 +34,5 @@ def show(csv_path: str):
 
 show("results/CLIP_1.csv")
 # show("results/DNF_1.csv")
-show("results/DNF_2.csv")
+# show("results/DNF_2.csv")
+show("results/DNF_3.csv")
