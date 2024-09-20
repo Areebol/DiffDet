@@ -17,7 +17,7 @@ import cv2
 import time
 import multiprocessing
 
-from going_modular.going_modular import data_setup, engine
+from going_modular.going_modular import engine
 
 import logging
 import datetime
@@ -46,7 +46,7 @@ info = logging.info
 debug = logging.debug
 error = logging.error
 
-device = "cuda:1" if torch.cuda.is_available() else "cpu"
+device = "cuda" if torch.cuda.is_available() else "cpu"
 clip_model, clip_preprocess = None, None
 
 batch_size = 64

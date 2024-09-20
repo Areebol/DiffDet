@@ -124,7 +124,9 @@ class VideoFeatureDataset(Dataset):
         if self.feature == "clip" and feature_path.with_suffix(".npy").exists():
             debug(f"[数据集] 加载特征：{feature_path}")
             features_array = np.load(feature_path.with_suffix(".npy"))
-            features_tensor = torch.tensor(features_array, dtype=torch.float32)
+            features_tensor = torch.tensor(
+                features_array, dtype=torch.float32, device=device
+            )
             # 如果形状不是 (1, -1)，则 reshape
             try:
                 debug(f"[数据集] 原特征形状：{features_tensor.shape}")
