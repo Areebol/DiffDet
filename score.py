@@ -29,80 +29,60 @@ continuous = True
 sde = VPSDE()
 
 
-class SDE_Adv_Model(nn.Module):
-    def __init__(self, args, config):
-        super().__init__()
-        self.args = args
-
-        # 关键在 runner 这里
-        self.runner = RevGuidedDiffusion(args, config, device=device)
-
-        self.register_buffer("counter", torch.zeros(1, device=device))
-        """
-        register_buffer 可以确保 counter 总是和模型在同一个设备上（CPU 或 GPU）。如果直接用属性，在模型迁移设备时需要手动处理这个变量。
-        register_buffer 注册的变量会被视为模型状态的一部分。在保存和加载模型时（state_dict()），这些 buffer 会自动被保存和恢复；普通属性则不会被自动包含在模型状态中。
-        虽然对于简单的计数器来说，这种差异可能不是特别明显，但使用 register_buffer 是更规范的做法。
-        """
-        self.tag = None
-
-model = SDE_Adv_Model(args, config)
-model = model.eval().to(device)
-
-
-def score_fn(X, T):  # 加完噪声的 X 和 时间 T
-    """Compute the output of the score-based model.
-
-    Args:
-    model: The score model.
-    x: A mini-batch of input data.
-    labels: A mini-batch of conditioning variables for time steps. Should be interpreted differently
-        for different models.
-    """
-
-    labels = T * 999
-    _out = model(X, labels)
-
-    # 通过标准差和翻转符号缩放神经网络输出
-    std = sde.marginal_prob(torch.zeros_like(X), T)[1]
-    score = -_out / std[:, None, None, None]
-    return score
+def get_score_model(args, config):
+    model = RevGuidedDiffusion(args, config, device=device).model
+    model = model.eval().to(device)
+    return model
 
 
 def detection_test_ensattack():
-
     score_adv_list = []
-
     diffuse_t = 100
+
+    model = get_score_model(args, config)
 
     # 这里输入尺度必须是 [0, 1]
     for i, (x, y) in enumerate(loader):
         x = x.to(device)
         y = y.to(device)
 
+        # 将输入 X 的尺度从 [0, 1] 变换到 [-1, 1]
+        x = 2 * x - 1
+
         with torch.no_grad():
             for t in range(1, diffuse_t + 1):
 
-                curr_t = torch.tensor(t / 1000, device=x.device)
+                # 时间步 t
+                _t = torch.tensor(t / 1000, device=x.device)  # t/1000
+                _t_expand = _t.expand(x.shape[0])  # 对张量 _t 进行广播 [batch_size]
 
-                # 噪声
+                # 根据时间步 t 计算该时间步噪声扩散后的均值和标准差
+                x_mean_at_t_step, x_std_at_t_step = sde.marginal_prob(x, _t_expand)
+
+                # 引入一个高斯噪声
                 z = torch.randn_like(x, device=x.device)
-                x_mean, x_std = sde.marginal_prob(
-                    2 * x - 1,  # 这里输入尺度变换成 [-1, 1]
-                    curr_t.expand(x.shape[0]),  # 对张量进行广播
+
+                # 形成时间步 t 时的扰动样本
+                perturbed_data = (
+                    x_mean_at_t_step + x_std_at_t_step[:, None, None, None] * z
                 )
-                perturbed_data = x_mean + x_std[:, None, None, None] * z
-                score = score_fn(perturbed_data, curr_t.expand(x.shape[0]))
+
+                # 输入模型计算时间步 t 时的扰动样本的 Score
+                # For VP-trained models, t=0 corresponds to the lowest noise level
+                # The maximum value of time embedding is assumed to 999 for
+                # continuously-trained models.
+                _out = model(perturbed_data, _t_expand * 999)
+
+                # 对模型输出除以 sigma
+                _, sigma = sde.marginal_prob(torch.zeros_like(x), _t_expand)
+                score = -_out / sigma[:, None, None, None]
+
                 # Diffusion 模型的输出有两个部分，第一部分是 Score，第二部分不用管
                 score, _ = torch.split(score, score.shape[1] // 2, dim=1)
                 # 确保 Score 形状与输入相同
                 assert score.shape == x.shape, f"{x.shape}, {score.shape}"
 
                 score_adv_list.append(score.detach())
-
-
-from eps_ad.score_sde import sde_lib
-from eps_ad.score_sde.models import utils as mutils
-from eps_ad.runners.diffpure_sde import RevVPSDE
 
 
 def get_score(x, y, t):
