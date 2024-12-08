@@ -10,4 +10,5 @@ features
 *.logs
 dnf
 TimeSformer
+eps_ad
 tmp
