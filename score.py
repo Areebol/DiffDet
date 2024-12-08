@@ -28,19 +28,13 @@ continuous = True
 
 sde = VPSDE()
 
-model = SDE_Adv_Model(args, config)
-model = model.eval().to(device)
-
 
 class SDE_Adv_Model(nn.Module):
     def __init__(self, args, config):
         super().__init__()
         self.args = args
 
-        self.detection_flag = True
-
-        # self.classifier = get_image_classifier(args.classifier_name).to(device)
-
+        # 关键在 runner 这里
         self.runner = RevGuidedDiffusion(args, config, device=device)
 
         self.register_buffer("counter", torch.zeros(1, device=device))
@@ -51,12 +45,6 @@ class SDE_Adv_Model(nn.Module):
         """
         self.tag = None
 
-    def reset_counter(self):
-        self.counter = torch.zeros(1, dtype=torch.int, device=device)
-
-    def set_tag(self, tag=None):
-        self.tag = tag
-
     def forward(self, x):
         """
         if not self.detection_flag:
@@ -64,8 +52,9 @@ class SDE_Adv_Model(nn.Module):
             x_re = self.runner.image_editing_sample(...)
             out = self.classifier((x_re + 1) * 0.5)
         else:
-            # 检测模式：返回净化后的图像和时间序列信息
+            # 检测模式：返回净化后的图像和时间序列信息（此处使用该模式）
             x_re, ts_cat = self.runner.image_editing_sample(...)
+            # 仅使用 x_re 这个部分
         """
 
         counter = self.counter.item()
@@ -74,38 +63,18 @@ class SDE_Adv_Model(nn.Module):
 
         x = F.interpolate(x, size=(256, 256), mode="bilinear", align_corners=False)
 
-        start_time = time.time()
-        if not self.detection_flag:
-            x_re = self.runner.image_editing_sample(
-                (x - 0.5) * 2, bs_id=counter, tag=self.tag
-            )  # diffusion+purify
-        else:
-            x_re, ts_cat = self.runner.image_editing_sample(
-                (x - 0.5) * 2, bs_id=counter, tag=self.tag, t_size=self.args.t_size
-            )  # diffusion+purify
-
-        minutes, seconds = divmod(time.time() - start_time, 60)
-
-        if not self.detection_flag:
-
-            x_re = F.interpolate(
-                x_re, size=(224, 224), mode="bilinear", align_corners=False
-            )
-
-            if counter % 5 == 0:
-                print(f"x shape (before diffusion models): {x.shape}")
-                print(f"x shape (before classifier): {x_re.shape}")
-                print(
-                    "Sampling time per batch: {:0>2}:{:05.2f}".format(
-                        int(minutes), seconds
-                    )
-                )
-
-            out = self.classifier((x_re + 1) * 0.5)
+        # diffusion+purify
+        x_re, ts_cat = self.runner.image_editing_sample(
+            (x - 0.5) * 2, bs_id=counter, tag=self.tag, t_size=10
+        )
 
         self.counter += 1
 
-        return out if not self.detection_flag else x_re, ts_cat
+        return x_re, ts_cat
+
+
+model = SDE_Adv_Model(args, config)
+model = model.eval().to(device)
 
 
 def score_fn(X, T):  # 加完噪声的 X 和 时间 T
