@@ -5,7 +5,6 @@ import time
 
 import random
 import numpy as np
-import abc
 
 import torch
 import torch.nn as nn
@@ -18,19 +17,46 @@ from eps_ad.runners.diffpure_sde import RevGuidedDiffusion
 # from eps_ad.score_sde import sde_lib
 from lib.sde import VPSDE
 
-# from eps_ad.score_sde.models import utils as mutils
-# from eps_ad.runners.diffpure_sde import RevVPSDE
-
 
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-train = False
-continuous = True
-
 sde = VPSDE()
 
 
-def get_score_model(args, config):
-    model = RevGuidedDiffusion(args, config, device=device).model
+def get_score_model():
+    import eps_ad.runners.diffpure_sde as diffpure_sde
+
+    # 定义模型配置
+    model_config = diffpure_sde.model_and_diffusion_defaults()
+    model_config.update(
+        {
+            "attention_resolutions": "32,16,8",
+            "class_cond": False,
+            "diffusion_steps": 1000,
+            "rescale_timesteps": True,
+            "timestep_respacing": "1000",  # Modify this value to decrease the number of timesteps.
+            "image_size": 256,
+            "learn_sigma": True,
+            "noise_schedule": "linear",
+            "num_channels": 256,
+            "num_head_channels": 64,
+            "num_res_blocks": 2,
+            "resblock_updown": True,
+            "use_fp16": True,
+            "use_scale_shift_norm": True,
+        }
+    )
+    print(f"model_config: {model_config}")
+
+    # 根据模型配置创建模型并加载参数
+    model, _ = diffpure_sde.create_model_and_diffusion(**model_config)
+    model.load_state_dict(
+        torch.load(f"models/256x256_diffusion_uncond.pt", map_location="cpu")
+    )
+
+    # 模型量化
+    if model_config["use_fp16"]:
+        model.convert_to_fp16()
+
     model = model.eval().to(device)
     return model
 
@@ -83,17 +109,6 @@ def detection_test_ensattack():
                 assert score.shape == x.shape, f"{x.shape}, {score.shape}"
 
                 score_adv_list.append(score.detach())
-
-
-def get_score(x, y, t):
-    x = x.to(device)
-    y = y.to(device)
-    t = torch.tensor(t / 1000, device=device)
-
-    z = torch.randn_like(x, device=x.device)
-    x_mean, x_std = sde.marginal_prob(2 * x - 1, t.expand(x.shape[0]))
-    perturbed_data = x_mean + x_std[:, None, None, None] * z
-    score = score_fn(perturbed_data, t.expand(x.shape[0]))
 
 
 def parse_args_and_config():
