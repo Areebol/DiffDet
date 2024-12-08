@@ -1,4 +1,5 @@
 from utils import *
+from data_setup import *
 from model import ViT
 
 

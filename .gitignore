@@ -10,3 +10,4 @@ features
 *.logs
 dnf
 TimeSformer
+tmp

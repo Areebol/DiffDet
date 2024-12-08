@@ -1,7 +1,7 @@
 from utils import *
 from data_setup import *
 
-# from model import *
+from model import *
 from vit_pytorch.vivit import ViT
 
 # # 模型小结
@@ -13,27 +13,28 @@ from vit_pytorch.vivit import ViT
 #     # row_settings=["var_names"],
 # )
 
-# model = MLPViT(
-#     mlp_input_size=3 * 8 * 224 * 224,
-#     mlp_output_size=672,
-#     vit_d_model=672,
-#     vit_num_heads=1,
-#     num_classes=2,
-# ).to(device)
-
-model = ViT(
-    image_size=224,  # image size
-    frames=8,  # number of frames
-    image_patch_size=16,  # image patch size
-    frame_patch_size=2,  # frame patch size
+model = MLPViT(
+    mlp_input_size=3 * 8 * 224 * 224,
+    mlp_hidden_size=672,
+    mlp_output_size=4096,
+    vit_d_model=4096,
+    vit_num_heads=8,
     num_classes=2,
-    dim=4096,
-    spatial_depth=6,  # depth of the spatial transformer
-    temporal_depth=6,  # depth of the temporal transformer
-    heads=8,
-    mlp_dim=2048,
-    variant="factorized_encoder",  # or 'factorized_self_attention'
-)
+).to(device)
+
+# model = ViT(
+#     image_size=224,  # image size
+#     frames=8,  # number of frames
+#     image_patch_size=16,  # image patch size
+#     frame_patch_size=2,  # frame patch size
+#     num_classes=2,
+#     dim=4096,
+#     spatial_depth=6,  # depth of the spatial transformer
+#     temporal_depth=6,  # depth of the temporal transformer
+#     heads=8,
+#     mlp_dim=2048,
+#     variant="factorized_encoder",  # or 'factorized_self_attention'
+# )
 
 summary(model=model)
 # exit()
@@ -108,7 +109,8 @@ def train_on(dataset_name: str, feature: str = "dnf", num_samples: int = 1000):
     global model
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(
-        params=model.parameters(), lr=1e-3, betas=(0.9, 0.999), weight_decay=0.1
+        # params=model.parameters(), lr=1e-3, betas=(0.9, 0.999), weight_decay=0.1
+        params=model.parameters(), lr=1e-4, betas=(0.9, 0.999), weight_decay=0.1
     )
 
     dataset_fake = SubsetVideoFeatureDataset(
@@ -229,8 +231,8 @@ if __name__ == "__main__":
 
     info(f"[DoCoF] 训练数据集：{train_dataset}")
 
-    for train_dataset_name in train_dataset:
-        train_on(train_dataset_name)
+    # for train_dataset_name in train_dataset:
+    #     train_on(train_dataset_name)
 
     for train_dataset_name in train_dataset:
         for test_dataset_name in dataset_paths.keys():

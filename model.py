@@ -2,13 +2,17 @@ from utils import *
 
 
 class MLP(nn.Module):
-    def __init__(self, input_size, output_size):
+    def __init__(self, input_size, hidden_size=672, output_size=4096):
         super(MLP, self).__init__()
-        self.fc1 = nn.Linear(input_size, output_size)
+        self.fc1 = nn.Linear(input_size, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, output_size)
         self.relu = nn.ReLU()
 
     def forward(self, x):
+        x = x.view(x.size(0), -1)
         x = self.fc1(x)
+        x = self.relu(x)
+        x = self.fc2(x)
         return x
 
 
@@ -41,13 +45,18 @@ class MLPViT(nn.Module):
     def __init__(
         self,
         mlp_input_size,
+        mlp_hidden_size,
         mlp_output_size,
         vit_d_model,
         vit_num_heads,
         num_classes,
     ):
         super().__init__()
-        self.mlp = MLP(input_size=mlp_input_size, output_size=mlp_output_size)
+        self.mlp = MLP(
+            input_size=mlp_input_size,
+            hidden_size=mlp_hidden_size,
+            output_size=mlp_output_size,
+        )
         self.vit = ViT(
             d_model=vit_d_model, num_heads=vit_num_heads, num_classes=num_classes
         )

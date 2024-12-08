@@ -91,8 +91,9 @@ def dnf_feature(x: torch.Tensor) -> torch.Tensor:
     x = x.to(device)
     with torch.no_grad():
         n = x.size(0)  # 获取输入张量 x 的第一个维度的大小，即批量大小
-        t = (torch.ones(n) * seq[0]).to(device)
+        t = (torch.ones(n) * seq[0]).to(device)  # t=[0. ... 0.]
         et = diffusion_model(x, t)
+
     return et
 
 

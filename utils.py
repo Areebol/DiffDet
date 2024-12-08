@@ -16,6 +16,7 @@ from PIL import Image
 import cv2
 import time
 import multiprocessing
+import json
 
 from going_modular.going_modular import engine
 
@@ -24,7 +25,7 @@ import datetime
 
 cwd = Path(__file__).parent
 
-# DEBUG = True
+DEBUG = True
 
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
