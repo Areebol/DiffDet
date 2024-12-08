@@ -61,32 +61,32 @@ def get_score_model():
     return model
 
 
-def detection_test_ensattack():
+def calc_video_score(dataloader):
     score_adv_list = []
     diffuse_t = 100
 
-    model = get_score_model(args, config)
+    model = get_score_model()
 
     # 这里输入尺度必须是 [0, 1]
-    for i, (x, y) in enumerate(loader):
-        x = x.to(device)
-        y = y.to(device)
+    for idx, (X, Y) in enumerate(dataloader):
+        X = X.to(device)
+        Y = Y.to(device)
 
         # 将输入 X 的尺度从 [0, 1] 变换到 [-1, 1]
-        x = 2 * x - 1
+        X = 2 * X - 1
 
         with torch.no_grad():
             for t in range(1, diffuse_t + 1):
 
                 # 时间步 t
-                _t = torch.tensor(t / 1000, device=x.device)  # t/1000
-                _t_expand = _t.expand(x.shape[0])  # 对张量 _t 进行广播 [batch_size]
+                _t = torch.tensor(t / 1000, device=X.device)  # t/1000
+                _t_expand = _t.expand(X.shape[0])  # 对张量 _t 进行广播 [batch_size]
 
                 # 根据时间步 t 计算该时间步噪声扩散后的均值和标准差
-                x_mean_at_t_step, x_std_at_t_step = sde.marginal_prob(x, _t_expand)
+                x_mean_at_t_step, x_std_at_t_step = sde.marginal_prob(X, _t_expand)
 
                 # 引入一个高斯噪声
-                z = torch.randn_like(x, device=x.device)
+                z = torch.randn_like(X, device=X.device)
 
                 # 形成时间步 t 时的扰动样本
                 perturbed_data = (
@@ -100,204 +100,32 @@ def detection_test_ensattack():
                 _out = model(perturbed_data, _t_expand * 999)
 
                 # 对模型输出除以 sigma
-                _, sigma = sde.marginal_prob(torch.zeros_like(x), _t_expand)
+                _, sigma = sde.marginal_prob(torch.zeros_like(X), _t_expand)
                 score = -_out / sigma[:, None, None, None]
 
                 # Diffusion 模型的输出有两个部分，第一部分是 Score，第二部分不用管
                 score, _ = torch.split(score, score.shape[1] // 2, dim=1)
                 # 确保 Score 形状与输入相同
-                assert score.shape == x.shape, f"{x.shape}, {score.shape}"
+                assert score.shape == X.shape, f"{X.shape}, {score.shape}"
 
                 score_adv_list.append(score.detach())
 
 
-def parse_args_and_config():
-    parser = argparse.ArgumentParser(description=globals()["__doc__"])
-    # diffusion models
-    parser.add_argument(
-        "--config",
-        type=str,
-        # default="cifar10.yml",
-        default="imagenet.yml",
-        help="Path to the config file",
-    )
-    parser.add_argument("--data_seed", type=int, default=0, help="Random seed")
-    parser.add_argument("--seed", type=int, default=1235, help="Random seed")
-    parser.add_argument(
-        "--exp",
-        type=str,
-        default="./exp_results",
-        help="Path for saving running related data.",
-    )
-    parser.add_argument(
-        "--verbose",
-        type=str,
-        default="info",
-        help="Verbose level: info | debug | warning | critical",
-    )
-    parser.add_argument(
-        "-i",
-        "--image_folder",
-        type=str,
-        # default="cifar10",
-        default="imagenet",
-        help="The folder name of samples",
-    )
-    parser.add_argument(
-        "--ni",
-        action="store_true",
-        help="No interaction. Suitable for Slurm Job launcher",
-    )
-    parser.add_argument(
-        "--sample_step", type=int, default=1, help="Total sampling steps"
-    )
-    parser.add_argument("--t", type=int, default=1000, help="Sampling noise scale")
-    parser.add_argument(
-        "--t_delta",
-        type=int,
-        default=15,
-        help="Perturbation range of sampling noise scale",
-    )
-    parser.add_argument(
-        "--rand_t",
-        type=str2bool,
-        default=False,
-        help="Decide if randomize sampling noise scale",
-    )
-    parser.add_argument("--diffusion_type", type=str, default="sde", help="[ddpm, sde]")
-    parser.add_argument(
-        "--score_type",
-        type=str,
-        default="score_sde",
-        help="[guided_diffusion, score_sde]",
-    )
-    parser.add_argument(
-        "--eot_iter", type=int, default=20, help="only for rand version of autoattack"
-    )
-    parser.add_argument(
-        "--use_bm", action="store_true", help="whether to use brownian motion"
-    )
-    parser.add_argument("--datapath", type=str, default="./dataset")
-
-    # Detection
-    parser.add_argument("--clean_score_flag", action="store_true")
-    parser.add_argument(
-        "--detection_datapath", type=str, default="./score_diffusion_t_cifar"
-    )  # ./score_diffusion_t_cifar
-    # parser.add_argument('--detection_flag', action='store_true')
-    # parser.add_argument('--detection_ensattack_flag', action='store_true')
-    parser.add_argument("--detection_ensattack_norm_flag", action="store_true")
-    parser.add_argument("--generate_1w_flag", action="store_true")
-    parser.add_argument("--single_vector_norm_flag", action="store_true")
-    parser.add_argument("--t_size", type=int, default=10)
-    parser.add_argument("--diffuse_t", type=int, default=100)
-    parser.add_argument("--perb_image", action="store_true")
-
-    # LDSDE
-    parser.add_argument("--sigma2", type=float, default=1e-3, help="LDSDE sigma2")
-    parser.add_argument("--lambda_ld", type=float, default=1e-2, help="lambda_ld")
-    parser.add_argument("--eta", type=float, default=5.0, help="LDSDE eta")
-    parser.add_argument(
-        "--step_size", type=float, default=1e-2, help="step size for ODE Euler method"
-    )
-
-    # adv
-    parser.add_argument(
-        "--domain",
-        type=str,
-        # default="cifar10",
-        default="imagenet",
-        help="which domain: celebahq, cat, car, imagenet",
-    )
-    parser.add_argument(
-        "--classifier_name",
-        type=str,
-        default="cifar10-wideresnet-28-10",
-        help="which classifier to use",
-    )
-    parser.add_argument("--partition", type=str, default="val")
-    parser.add_argument("--adv_batch_size", type=int, default=64)
-    parser.add_argument("--attack_type", type=str, default="square")
-    parser.add_argument("--lp_norm", type=str, default="Linf", choices=["Linf", "L2"])
-    parser.add_argument("--attack_version", type=str, default="standard")
-
-    # additional attack settings
-    parser.add_argument(
-        "--num-steps", default=5, type=int, help="perturb number of steps"
-    )
-    parser.add_argument("--random", default=True, help="random initialization for PGD")
-    parser.add_argument(
-        "--attack_methods",
-        type=str,
-        nargs="+",
-        default=[
-            "FGSM",
-            "PGD",
-            "BIM",
-            "MIM",
-            "TIM",
-            "CW",
-            "DI_MIM",
-            "FGSM_L2",
-            "PGD_L2",
-            "BIM_L2",
-            "MM_Attack",
-            "AA_Attack",
-        ],
-    )
-    parser.add_argument("--mim_momentum", default=1.0, type=float, help="mim_momentum")
-    parser.add_argument(
-        "--epsilon", default=0.01568, type=float, help="perturbation"
-    )  # 0.01568, type=float,help='perturbation')
-
-    parser.add_argument("--num_sub", type=int, default=64, help="imagenet subset")
-    parser.add_argument("--adv_eps", type=float, default=0.031373, help="0.031373")
-    parser.add_argument("--gpu_ids", type=str, default="3,4")
-
-    # vmi-fgsm
-    parser.add_argument(
-        "--momentum", default=1.0, type=float, help="momentum of the attack"
-    )
-    parser.add_argument(
-        "--number",
-        default=20,
-        type=int,
-        help="the number of images for variance tuning",
-    )
-    parser.add_argument(
-        "--beta", default=1.5, type=float, help="the bound for variance tuning"
-    )
-    parser.add_argument(
-        "--prob", default=0.5, type=float, help="probability of using diverse inputs"
-    )
-    parser.add_argument(
-        "--image_resize", default=331, type=int, help="heigth of each input image"
-    )
-
-    args = parser.parse_args()
-    args.step_size_adv = args.epsilon / args.num_steps
-
-    # os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_ids
-    # parse config file
-    with open(os.path.join("eps_ad/configs", args.config), "r") as f:
-        config = yaml.safe_load(f)
-    new_config = utils.dict2namespace(config)
-
-    # add device
-    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-
-    # set random seed
-    torch.manual_seed(args.seed)
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(args.seed)
-
-    torch.backends.cudnn.benchmark = True
-
-    return args, new_config
+def set_random_seed(random_seed):
+    random.seed(random_seed)
+    np.random.seed(random_seed)
+    torch.manual_seed(random_seed)  # 设置 PyTorch 的 CPU 随机种子
+    if torch.cuda.is_available():  # 如果 GPU 可用，设置 PyTorch 的 GPU 随机种子
+        torch.cuda.manual_seed_all(random_seed)
 
 
 if __name__ == "__main__":
-    args, config = parse_args_and_config()
-    # robustness_eval(args, config)
+
+    # 设置随机种子
+    set_random_seed(random_seed=1235)
+
+    # 优化 GPU 运算速度
+    """当设置为 True 时，cuDNN 会自动寻找最适合当前硬件的卷积算法。
+    系统会先花费一些时间找到最优算法，然后在接下来的运行中一直使用这个最优算法。
+    第一次运行时会略微变慢（因为要寻找最优算法），之后的运行会明显加速，并会占用更多的显存。"""
+    torch.backends.cudnn.benchmark = True
