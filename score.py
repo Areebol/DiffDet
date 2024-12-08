@@ -45,34 +45,6 @@ class SDE_Adv_Model(nn.Module):
         """
         self.tag = None
 
-    def forward(self, x):
-        """
-        if not self.detection_flag:
-            # 防御模式：净化图像并进行分类
-            x_re = self.runner.image_editing_sample(...)
-            out = self.classifier((x_re + 1) * 0.5)
-        else:
-            # 检测模式：返回净化后的图像和时间序列信息（此处使用该模式）
-            x_re, ts_cat = self.runner.image_editing_sample(...)
-            # 仅使用 x_re 这个部分
-        """
-
-        counter = self.counter.item()
-        if counter % 5 == 0:
-            print(f"diffusion times: {counter}")
-
-        x = F.interpolate(x, size=(256, 256), mode="bilinear", align_corners=False)
-
-        # diffusion+purify
-        x_re, ts_cat = self.runner.image_editing_sample(
-            (x - 0.5) * 2, bs_id=counter, tag=self.tag, t_size=10
-        )
-
-        self.counter += 1
-
-        return x_re, ts_cat
-
-
 model = SDE_Adv_Model(args, config)
 model = model.eval().to(device)
 
@@ -96,7 +68,7 @@ def score_fn(X, T):  # 加完噪声的 X 和 时间 T
     return score
 
 
-def detection_test_ensattack(args, config):
+def detection_test_ensattack():
 
     score_adv_list = []
 

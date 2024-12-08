@@ -1,0 +1,89 @@
+# 配置文件路径
+config: "imagenet.yml"  # Path to the config file
+
+# 随机种子设置
+data_seed: 0   # Random seed for data generation
+seed: 1235     # Random seed for the whole code
+
+# 运行相关数据保存路径
+exp: "./exp_results"  # Path for saving experiment-related data
+
+# 输出日志的详细等级
+verbose: "info"  # Verbose level: info | debug | warning | critical
+
+# 样本图片文件夹名称
+image_folder: "imagenet"  # Folder name for sample images
+ni: false  # No interaction. Suitable for Slurm job launcher (default false)
+
+# 采样步骤控制
+sample_step: 1  # Total sampling steps
+t: 1000         # Sampling noise scale
+t_delta: 15     # Perturbation range of sampling noise scale
+rand_t: false   # Decide if randomize sampling noise scale
+
+# Diffusion属性
+diffusion_type: "sde"  # Diffusion type: [ddpm, sde]
+score_type: "score_sde"  # Score function: [guided_diffusion, score_sde]
+
+# Auto Attack随机版本相关参数
+eot_iter: 20  # Only for random version of AutoAttack
+use_bm: false  # Whether to use Brownian motion
+
+# 数据路径
+datapath: "./dataset"  # Path to the dataset
+
+# 检测相关参数
+clean_score_flag: false  # Flag to use clean score for detection
+detection_datapath: "./score_diffusion_t_cifar"  # Path to detection data
+detection_ensattack_norm_flag: false  # Flag for ensemble attack with normalized detection
+generate_1w_flag: false  # Flag to generate 1w samples
+single_vector_norm_flag: false  # Flag for using single vector normalization
+t_size: 10               # t size parameter for detection
+diffuse_t: 100           # Diffuse t setting in detection
+perb_image: false        # Flag for perturbing images
+
+# LDSDE相关参数
+sigma2: 0.001          # LDSDE parameter sigma2
+lambda_ld: 0.01        # LDSDE parameter lambda_ld
+eta: 5.0               # LDSDE parameter eta
+step_size: 0.01        # Step size for ODE Euler method
+
+# 对抗设置
+domain: "imagenet"  # Target domain: celebahq, cat, car, imagenet
+classifier_name: "cifar10-wideresnet-28-10"  # Classifier model being used
+partition: "val"  # Dataset partition: train / val
+adv_batch_size: 64  # Batch size for adversarial attacks
+attack_type: "square"  # Type of adversarial attack
+lp_norm: "Linf"        # Norm constraint for adversarial attack (Linf / L2)
+attack_version: "standard"  # Version of the adversarial attack used
+
+# 附加对抗攻击设置
+num_steps: 5  # Perturb number of steps
+random: true  # Whether to enable random initialization for PGD attack
+attack_methods:  # List of attack methods
+  - FGSM
+  - PGD
+  - BIM
+  - MIM
+  - TIM
+  - CW
+  - DI_MIM
+  - FGSM_L2
+  - PGD_L2
+  - BIM_L2
+  - MM_Attack
+  - AA_Attack
+mim_momentum: 1.0  # Momentum for MIM attack
+epsilon: 0.01568   # Perturbation epsilon value
+
+# 数据分集和扰动相关参数
+num_sub: 64          # Subset size for imagenet
+adv_eps: 0.031373    # Adversarial epsilon for attacks
+gpu_ids: "3,4"       # GPU IDs used for computation
+
+# VMI-FGSM攻击相关参数
+momentum: 1.0                     # Momentum for VMI-FGSM attack
+number: 20                        # Number of images for variance tuning
+beta: 1.5                         # Bound for variance tuning
+prob: 0.5                         # Probability to use diverse inputs
+image_resize: 331                 # Height (and width if square) of input image
