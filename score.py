@@ -1,22 +1,8 @@
-import argparse
-import yaml
-import os
-import time
-
 import random
 import numpy as np
-
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
-import eps_ad.utils as utils
-from eps_ad.utils import str2bool, get_image_classifier
-from eps_ad.runners.diffpure_sde import RevGuidedDiffusion
-
-# from eps_ad.score_sde import sde_lib
 from lib.sde import VPSDE
-
+from torch.utils.data import Dataset, DataLoader
 
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 sde = VPSDE()
@@ -68,9 +54,8 @@ def calc_video_score(dataloader):
     model = get_score_model()
 
     # 这里输入尺度必须是 [0, 1]
-    for idx, (X, Y) in enumerate(dataloader):
+    for idx, (X, _) in enumerate(dataloader):
         X = X.to(device)
-        Y = Y.to(device)
 
         # 将输入 X 的尺度从 [0, 1] 变换到 [-1, 1]
         X = 2 * X - 1
@@ -129,3 +114,28 @@ if __name__ == "__main__":
     系统会先花费一些时间找到最优算法，然后在接下来的运行中一直使用这个最优算法。
     第一次运行时会略微变慢（因为要寻找最优算法），之后的运行会明显加速，并会占用更多的显存。"""
     torch.backends.cudnn.benchmark = True
+
+    # 创建数据集和数据加载器
+    class SimpleDataset(Dataset):
+        def __init__(self, size=1000, img_size=(3, 255, 255)):
+            self.size = size
+            self.img_size = img_size
+            self.data = torch.randn(size, *img_size)  # 生成随机图像数据
+            self.labels = torch.randint(0, 2, (size,))  # 生成随机 0/1 标签
+
+        def __len__(self):
+            return self.size
+
+        def __getitem__(self, idx):
+            return self.data[idx], self.labels[idx]
+
+    # 创建数据集实例
+    dataset = SimpleDataset()
+
+    # 创建数据加载器
+    batch_size = 32
+    dataloader = DataLoader(
+        dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True
+    )
+
+    calc_video_score(dataloader)
