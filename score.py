@@ -3,8 +3,8 @@ import numpy as np
 import torch
 from lib.sde import VPSDE
 from torch.utils.data import Dataset, DataLoader
+from utils import *
 
-device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 sde = VPSDE()
 
 
@@ -48,52 +48,67 @@ def get_score_model():
 
 
 def calc_video_score(dataloader):
-    score_adv_list = []
     diffuse_t = 100
-
     model = get_score_model()
 
     # 这里输入尺度必须是 [0, 1]
     for idx, (X, _) in enumerate(dataloader):
         X = X.to(device)
+        debug(f"X: {tensor_detail(X)}")
 
         # 将输入 X 的尺度从 [0, 1] 变换到 [-1, 1]
         X = 2 * X - 1
+        debug(f"X: {tensor_detail(X)}")
 
         with torch.no_grad():
+            scores_at_t = []
             for t in range(1, diffuse_t + 1):
 
                 # 时间步 t
                 _t = torch.tensor(t / 1000, device=X.device)  # t/1000
                 _t_expand = _t.expand(X.shape[0])  # 对张量 _t 进行广播 [batch_size]
+                debug(f"_t: {tensor_detail(_t)}")
+                debug(f"_t_expand: {tensor_detail(_t_expand)}")
 
                 # 根据时间步 t 计算该时间步噪声扩散后的均值和标准差
                 x_mean_at_t_step, x_std_at_t_step = sde.marginal_prob(X, _t_expand)
+                debug(f"x_mean_at_t_step: {tensor_detail(x_mean_at_t_step)}")
+                debug(f"x_std_at_t_step: {tensor_detail(x_std_at_t_step)}")
 
                 # 引入一个高斯噪声
                 z = torch.randn_like(X, device=X.device)
+                debug(f"z: {tensor_detail(z)}")
 
                 # 形成时间步 t 时的扰动样本
                 perturbed_data = (
                     x_mean_at_t_step + x_std_at_t_step[:, None, None, None] * z
                 )
+                debug(f"perturbed_data: {tensor_detail(perturbed_data)}")
 
                 # 输入模型计算时间步 t 时的扰动样本的 Score
                 # For VP-trained models, t=0 corresponds to the lowest noise level
                 # The maximum value of time embedding is assumed to 999 for
                 # continuously-trained models.
                 _out = model(perturbed_data, _t_expand * 999)
+                debug(f"_out: {tensor_detail(_out)}")
 
                 # 对模型输出除以 sigma
                 _, sigma = sde.marginal_prob(torch.zeros_like(X), _t_expand)
+                debug(f"sigma: {tensor_detail(sigma)}")
                 score = -_out / sigma[:, None, None, None]
+                debug(f"score: {tensor_detail(score)}")
 
                 # Diffusion 模型的输出有两个部分，第一部分是 Score，第二部分不用管
                 score, _ = torch.split(score, score.shape[1] // 2, dim=1)
+                debug(f"score: {tensor_detail(score)}")
+
                 # 确保 Score 形状与输入相同
                 assert score.shape == X.shape, f"{X.shape}, {score.shape}"
 
-                score_adv_list.append(score.detach())
+                scores_at_t.append(score.detach())
+
+        scores_at_t = torch.stack(scores_at_t)
+        print(f"scores_at_t: {tensor_detail(scores_at_t)}")
 
 
 def set_random_seed(random_seed):
@@ -117,10 +132,10 @@ if __name__ == "__main__":
 
     # 创建数据集和数据加载器
     class SimpleDataset(Dataset):
-        def __init__(self, size=1000, img_size=(3, 255, 255)):
+        def __init__(self, size=1000, img_size=(3, 256, 256)):
             self.size = size
             self.img_size = img_size
-            self.data = torch.randn(size, *img_size)  # 生成随机图像数据
+            self.data = torch.rand(size, *img_size)  # 生成 0-1 之间的随机图像数据
             self.labels = torch.randint(0, 2, (size,))  # 生成随机 0/1 标签
 
         def __len__(self):
