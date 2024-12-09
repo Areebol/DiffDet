@@ -10,6 +10,7 @@ from diffusion import Diffusion
 from torchvision.utils import save_image
 from torchvision.io import read_image
 from torchvision.transforms.functional import InterpolationMode
+from score import extract_video_score
 
 NUM_FRAMES = 8
 FEATURE_LEN = NUM_FRAMES * 512
@@ -130,6 +131,29 @@ class VideoFeatureDataset(Dataset):
     def __len__(self):
         return len(self.files)
 
+    def __getitem__(self, idx) -> Optional[Tuple[torch.Tensor, int]]:
+        timer = Timer()
+        video_path = self.files[idx]
+        feature_path = self._get_feature_path(video_path)
+
+        # 尝试加载缓存的特征
+        if cached_features := self._load_cached_feature(feature_path):
+            return cached_features, self.fake
+
+        # 读取并处理视频帧
+        if frames := self._read_video_frames(video_path):
+            features = self._extract_features(frames)
+            self._save_features(features, feature_path)
+            debug(f"[数据集] 样本处理完成，总耗时：{timer.tick()}")
+            return features, self.fake
+
+        # 处理失败，删除损坏的视频文件
+        video_path.unlink(missing_ok=True)
+        return None
+
+    def __repr__(self) -> str:
+        return f"{self.dataset_name} ({len(self)})"
+
     def _get_feature_path(self, video_path: Path) -> Path:
         """根据视频路径生成特征文件路径"""
         return Path(
@@ -172,12 +196,30 @@ class VideoFeatureDataset(Dataset):
             error(f"[数据集] 加载DNF特征失败：{e}")
             return None
 
+    def _load_score_feature(self, feature_path: Path) -> Optional[torch.Tensor]:
+        """加载score特征文件"""
+        if not feature_path.with_suffix(".pt").exists():
+            return None
+
+        timer = Timer()
+        debug(f"[数据集] 加载score特征：{feature_path}")
+
+        try:
+            features = torch.load(feature_path.with_suffix(".pt"), weights_only=True)
+            debug(f"[数据集] 加载score特征耗时：{timer.tick()}")
+            return features.to(device)
+        except Exception as e:
+            error(f"[数据集] 加载score特征失败：{e}")
+            return None
+
     def _load_cached_feature(self, feature_path: Path) -> Optional[torch.Tensor]:
         """加载缓存的特征文件"""
         if self.feature == "clip":
             return self._load_clip_feature(feature_path)
         elif self.feature == "dnf":
             return self._load_dnf_feature(feature_path)
+        elif self.feature == "score":
+            return self._load_score_feature(feature_path)
         return None
 
     def _read_video_frames(self, video_path: Path) -> Optional[List]:
@@ -234,29 +276,6 @@ class VideoFeatureDataset(Dataset):
             debug(f"[数据集] 特征保存完成，耗时：{timer.tick()}")
         except Exception as e:
             error(f"[数据集] 保存特征失败：{e}")
-
-    def __getitem__(self, idx) -> Optional[Tuple[torch.Tensor, int]]:
-        timer = Timer()
-        video_path = self.files[idx]
-        feature_path = self._get_feature_path(video_path)
-
-        # 尝试加载缓存的特征
-        if cached_features := self._load_cached_feature(feature_path):
-            return cached_features, self.fake
-
-        # 读取并处理视频帧
-        if frames := self._read_video_frames(video_path):
-            features = self._extract_features(frames)
-            self._save_features(features, feature_path)
-            debug(f"[数据集] 样本处理完成，总耗时：{timer.tick()}")
-            return features, self.fake
-
-        # 处理失败，删除损坏的视频文���
-        video_path.unlink(missing_ok=True)
-        return None
-
-    def __repr__(self) -> str:
-        return f"{self.dataset_name} ({len(self)})"
 
 
 # 切片子数据集

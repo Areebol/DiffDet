@@ -79,13 +79,13 @@ class Timer:
         self.start_time = time.time()
         self.last_time = self.start_time
 
-    def elapsed(self):
+    def tick(self):
         """返回从创建计时器到现在经过的秒数"""
         now = time.time()
         elapsed = now - self.last_time
         self.last_time = now
-        return f"{elapsed:.2f} 秒"
+        return f"{elapsed:.2f} s"
 
     def total(self):
         """返回从创建计时器到现在的总用时"""
-        return f"{time.time() - self.start_time:.2f} 秒"
+        return f"{time.time() - self.start_time:.2f} s"
