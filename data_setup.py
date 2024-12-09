@@ -12,10 +12,12 @@ from torchvision.io import read_image
 from torchvision.transforms.functional import InterpolationMode
 from score import extract_video_score
 
-NUM_FRAMES = 8
-FEATURE_LEN = NUM_FRAMES * 512
 FEATURE = "score"
 # FEATURE = "dnf"
+
+# 根据特征类型设置帧数
+NUM_FRAMES = 10 if FEATURE == "score" else 8
+FEATURE_LEN = NUM_FRAMES * 512
 
 load_size = 256
 crop_size = 224
@@ -250,22 +252,48 @@ class VideoFeatureDataset(Dataset):
     def _extract_features(self, frames: List) -> torch.Tensor:
         """提取特征"""
         timer = Timer()
-        features = []
 
-        for frame in frames:
-            img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            if self.feature == "clip":
-                feature = clip_feature(img).detach().cpu().numpy()
-            else:  # dnf
-                img = diffusion_preprocess(img)
-                feature_dnf = dnf_feature(img)
-                feature = feature_dnf.reshape(3, 256, 256)[:, 16:240, 16:240].detach()
-            features.append(feature)
+        # 如果是 score 特征，使用 extract_video_score 直接提取
+        if self.feature == "score":
+            # 将帧转换为 [0,1] 范围的 tensor
+            score_transform = transforms.Compose(
+                [
+                    transforms.Lambda(lambda x: cv2.cvtColor(x, cv2.COLOR_BGR2RGB)),
+                    transforms.Lambda(lambda x: torch.from_numpy(x)),
+                    transforms.Lambda(
+                        lambda x: x.permute(2, 0, 1)
+                    ),  # (h, w, c) -> (c, h, w)
+                    transforms.Lambda(lambda x: x / 255.0),  # 归一化到 [0,1]
+                ]
+            )
+            frames = [score_transform(frame) for frame in frames]
+            frames_tensor = torch.stack(frames)
+            debug(f"[数据集] 视频帧转换为 tensor，形状：{frames_tensor.shape}")
 
-        features = torch.stack(features)
-        features = features.permute(1, 0, 2, 3).type(torch.float32)
-        debug(f"[数据集] 特征提取完成，耗时：{timer.tick()}")
-        return features
+            # 使用 extract_video_score 提取特征
+            features = extract_video_score(frames_tensor)
+            debug(f"[数据集] Score 特征提取完成，形状：{features.shape}")
+            return features
+
+        else:
+            features = []
+
+            for frame in frames:
+                img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                if self.feature == "clip":
+                    feature = clip_feature(img).detach().cpu().numpy()
+                elif self.feature == "dnf":  # dnf
+                    img = diffusion_preprocess(img)
+                    feature_dnf = dnf_feature(img)
+                    feature = feature_dnf.reshape(3, 256, 256)[
+                        :, 16:240, 16:240
+                    ].detach()
+                features.append(feature)
+
+            features = torch.stack(features)
+            features = features.permute(1, 0, 2, 3).type(torch.float32)
+            debug(f"[数据集] 特征提取完成，耗时：{timer.tick()}")
+            return features
 
     def _save_features(self, features: torch.Tensor, feature_path: Path) -> None:
         """保存特征"""
