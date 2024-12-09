@@ -55,12 +55,20 @@ Compose([
 ])
 """
 diffusion_model = None
+diffusion_preprocess = transforms.Compose(
+    [
+        transforms.Resize((256, 256), interpolation=InterpolationMode.BICUBIC),
+        transforms.ToTensor(),
+        transforms.Lambda(lambda x: x * 2 - 1),
+    ]
+)
 
 
 def get_clip_model():
     global clip_model, clip_preprocess
     if clip_model is None or clip_preprocess is None:
         clip_model, clip_preprocess = clip.load("ViT-B/32", device=device)
+        clip_model.eval()
     return clip_model, clip_preprocess
 
 
@@ -71,9 +79,10 @@ def get_diffusion_model():
         diffusion_ckpt = (
             f"{cwd}/models/dnf_diffusion.ckpt"  # Diffusion trained on LSUN Bedroom
         )
-        diffusion_model.load_state_dict(torch.load(diffusion_ckpt, weights_only=True))
-        diffusion_model = diffusion_model.to(device)
-    diffusion_model.eval()
+        diffusion_model.load_state_dict(
+            torch.load(diffusion_ckpt, weights_only=True, map_location=device)
+        )
+        diffusion_model.eval()
     return diffusion_model
 
 
@@ -85,15 +94,6 @@ def clip_feature(img: Image) -> torch.Tensor:
     # 用 CLIP 提取特征
     features = clip_model.encode_image(img)
     return features  # torch.Size([1, 512])
-
-
-diffusion_preprocess = transforms.Compose(
-    [
-        transforms.Resize((256, 256), interpolation=InterpolationMode.BICUBIC),
-        transforms.ToTensor(),
-        transforms.Lambda(lambda x: x * 2 - 1),
-    ]
-)
 
 
 def dnf_feature(x: torch.Tensor) -> torch.Tensor:
@@ -129,23 +129,15 @@ class VideoFeatureDataset(Dataset):
     def __len__(self):
         return len(self.files)
 
-    def __getitem__(self, idx):
-        # try:
-        t = time.time()
-
-        # 构建特征文件路径
-        feature_path = Path(
-            str(self.files[idx]).replace(DATASETS_DIR, f"{FEATURES_DIR}/{self.feature}")
-        )
-
-        # 如果已有特征文件则直接加载（速率：4s/万）
+    def _load_cached_feature(self, feature_path: Path, t: float):
+        """加载已缓存的特征文件"""
         if self.feature == "clip" and feature_path.with_suffix(".npy").exists():
             debug(f"[数据集] 加载特征：{feature_path}")
             features_array = np.load(feature_path.with_suffix(".npy"))
             features_tensor = torch.tensor(
                 features_array, dtype=torch.float32, device=device
             )
-            # 如果形状不是 (1, -1)，则 reshape
+
             try:
                 debug(f"[数据集] 原特征形状：{features_tensor.shape}")
                 features_tensor = features_tensor.reshape(1, FEATURE_LEN)
@@ -154,28 +146,26 @@ class VideoFeatureDataset(Dataset):
                 error(f"[数据集] 重塑特征出错：{e}")
                 error(f"[数据集] 原特征形状：{features_tensor.shape}")
                 error(f"[数据集] 原特征：{features_tensor}")
-                # 删除视频和特征文件
-                info(f"[数据集] 删除视频和特征文件：{feature_path.with_suffix('.npy')}")
-                self.files[idx].unlink()
-                feature_path.with_suffix(".npy").unlink()
                 return None
 
             debug(f"[数据集] 加载特征耗时：{time.time() - t:.2f} 秒")
-            return features_tensor.to(device), self.fake
+            return features_tensor.to(device)
 
         elif self.feature == "dnf" and feature_path.with_suffix(".pt").exists():
             debug(f"[数据集] 加载特征：{feature_path}")
             features = torch.load(feature_path.with_suffix(".pt"), weights_only=True)
             features: torch.Tensor = features.to(device)
             debug(f"[数据集] 加载特征耗时：{time.time() - t:.2f} 秒")
-            return features, self.fake
+            return features
 
-        # 读入视频文件
+        return None
+
+    def _read_video_frames(self, video_path: Path, t: float):
+        """读取视频帧"""
         try:
-            cap = cv2.VideoCapture(self.files[idx])
+            cap = cv2.VideoCapture(video_path)
             debug(f"[数据集] 读取视频耗时：{time.time() - t:.2f} 秒")
 
-            # 用 cv2 读取视频帧
             frames = []
             for i in range(NUM_FRAMES):
                 ret, frame = cap.read()
@@ -183,80 +173,75 @@ class VideoFeatureDataset(Dataset):
                     break
                 frames.append(frame)
             cap.release()
+            debug(f"[数据集] 读取视频帧耗时：{time.time() - t:.2f} 秒")
+            return frames
         except:
-            error(f"[数据集] 读取视频帧出错：{self.files[idx]}")
-            # 删除视频文件
-            info(f"[数据集] 删除视频文件：{self.files[idx]}")
+            error(f"[数据集] 读取视频帧出错：{video_path}")
+            return None
+
+    def _extract_clip_features(self, frames):
+        """提取 CLIP 特征"""
+        features = []
+        for frame in frames:
+            img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            # CLIP 中自带图像预处理
+            features.append(clip_feature(img).detach().cpu().numpy())
+        return features
+
+    def _extract_dnf_features(self, frames):
+        """提取 DNF 特征"""
+        features = []
+        for frame in frames:
+            img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            # 对图像进行 DNF 预处理
+            img: torch.Tensor = diffusion_preprocess(img)
+            # 提取图像的 DNF 特征
+            feature_dnf = dnf_feature(img)  # (1, 3, 256, 256)
+            # 将 DNF 特征中心裁剪成 224*224
+            feature_dnf = feature_dnf.reshape(3, 256, 256)[:, 16:240, 16:240]
+            features.append(feature_dnf.detach())
+        return features
+
+    def _save_features(self, features: torch.Tensor, feature_path: Path, t: float):
+        """保存特征"""
+        feature_path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(features, feature_path.with_suffix(".pt"))
+        debug(f"[数据集] 保存特征耗时：{time.time() - t:.2f} 秒")
+
+    def __getitem__(self, idx):
+        t = time.time()
+
+        # 构建特征文件路径
+        feature_path = Path(
+            str(self.files[idx]).replace(DATASETS_DIR, f"{FEATURES_DIR}/{self.feature}")
+        )
+
+        # 尝试加载缓存的特征
+        cached_features = self._load_cached_feature(feature_path, t)
+        if cached_features is not None:
+            return cached_features, self.fake
+
+        # 读取视频帧
+        frames = self._read_video_frames(self.files[idx], t)
+        if frames is None:
             self.files[idx].unlink()
             return None
-        debug(f"[数据集] 读取视频帧耗时：{time.time() - t:.2f} 秒")
 
-        # 用 CLIP 提取特征（速率：1500s/万个）
-        features = []
+        # 提取特征
         if self.feature == "clip":
-            for frame in frames:
-                img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-                # CLIP 中自带图像预处理
-                features.append(clip_feature(img).detach().cpu().numpy())
-
+            features = self._extract_clip_features(frames)
         elif self.feature == "dnf":
-            for frame in frames:
-                img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-
-                # 对图像进行 DNF 预处理
-                img: torch.Tensor = diffusion_preprocess(img)
-                # 提取图像的 DNF 特征
-                feature_dnf = dnf_feature(img)  # (1, 3, 256, 256)
-
-                # 将 DNF 特征中心裁剪成 224*224
-                feature_dnf = feature_dnf.reshape(3, 256, 256)[:, 16:240, 16:240]
-
-                # # 将 DNF 特征缩放成 224*224 以输入 CLIP 模型
-                # feature_dnf_rz = nn.functional.interpolate(
-                #     feature_dnf, (224, 224), mode="bicubic"
-                # )
-                # # 使用 CLIP 提取特征
-                # feature_clip: torch.Tensor = clip_model.encode_image(feature_dnf_rz)
-
-                features.append(feature_dnf.detach())
+            features = self._extract_dnf_features(frames)
 
         features = torch.stack(features)
         # 交换维度 ->（通道，帧数，...）
         features = features.permute(1, 0, 2, 3).type(torch.float32)
         debug(f"[数据集] 提取视频特征耗时：{time.time() - t:.2f} 秒")
 
-        # # 将特征列表转换为单一的 NumPy 数组
-        # try:
-        #     features_array = np.array(features).reshape(1, FEATURE_LEN)
-        # except Exception as e:
-        #     error(f"[数据集] 转换特征为 NumPy 数组出错：{e}")
-        #     error(f"[数据集] 提取特征：{features}")
-        #     # 删除视频和特征文件
-        #     info(f"[数据集] 删除视频和特征文件：{feature_path.with_suffix('.npy')}")
-        #     self.files[idx].unlink()
-        #     feature_path.with_suffix(".npy").unlink()
-        #     return None
-        # debug(f"[数据集] 转换视频特征耗时：{time.time() - t:.2f} 秒")
-
-        # # 保存特征，直接保存 NumPy 数组
-        # feature_path.parent.mkdir(parents=True, exist_ok=True)
-        # np.save(feature_path.with_suffix(".npy"), features_array)
-        # debug(f"[数据集] 保存特征耗时：{time.time() - t:.2f} 秒")
-
-        # # 转换为张量
-        # features_tensor = torch.tensor(features_array, dtype=torch.float32)
-        # debug(f"[数据集] 转换视频特征为张量耗时：{time.time() - t:.2f} 秒")
-
         # 保存特征
-        feature_path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(features, feature_path.with_suffix(".pt"))
-        debug(f"[数据集] 保存特征耗时：{time.time() - t:.2f} 秒")
+        self._save_features(features, feature_path, t)
 
         return features, self.fake
-
-    # except Exception as e:
-    #     error(f"[数据集] 加载数据集 {self.dataset_path}[{idx}] 出错：{e}")
-    #     return None
 
     def __repr__(self) -> str:
         return f"{self.dataset_name} ({len(self)})"
