@@ -6,7 +6,12 @@ from torch.utils.data import Dataset, DataLoader
 from utils import *
 import wandb
 
+
+diffuse_t = 50  # ImageNet 取 50
+selected_t_steps = [1, 2, 5, 10, 15, 20, 30, 50, 100]
+
 sde = VPSDE()
+score_model = None
 
 
 def get_score_model():
@@ -48,11 +53,6 @@ def get_score_model():
     return model
 
 
-score_model = None
-diffuse_t = 50  # ImageNet 取 50
-selected_t_steps = [1, 2, 5, 10, 15, 20, 30, 50, 100]
-
-
 def calc_video_score(X):
     """计算单个视频的分数
 
@@ -66,7 +66,11 @@ def calc_video_score(X):
     if score_model is None:
         score_model = get_score_model()
 
-    # 这里输入尺度必须是 [0, 1]
+    # 检查输入值域
+    assert (
+        X.min() >= 0 and X.max() <= 1
+    ), f"输入值域应该在 [0,1] 之间，但得到了：min={X.min()}, max={X.max()}"
+
     X = X.to(device)
     debug(f"X: {tensor_detail(X)}")
 
@@ -77,7 +81,7 @@ def calc_video_score(X):
 
     # 将输入 X 的尺度从 [0, 1] 变换到 [-1, 1]
     X = 2 * X - 1
-    debug(f"X: {tensor_detail(X)}")
+    debug(f"X after scale: {tensor_detail(X)}")
 
     with torch.no_grad():
         scores_at_t = []
@@ -117,8 +121,10 @@ def calc_video_score(X):
             score, _ = torch.split(score, score.shape[1] // 2, dim=1)
             debug(f"score: {tensor_detail(score)}")
 
-            # 确保 Score 形状与输入相同
-            assert score.shape == X.shape, f"{X.shape}, {score.shape}"
+            # 检查张量形状
+            assert (
+                score.shape == X.shape
+            ), f"Score 形状与输入不匹配：期望 {X.shape}，但得到了 {score.shape}"
 
             # 将维度恢复到原始形状
             score = score.reshape(shape_t, shape_c, shape_h, shape_w)
@@ -239,8 +245,10 @@ def calc_video_score_batch(dataloader):
                 score, _ = torch.split(score, score.shape[1] // 2, dim=1)
                 debug(f"score: {tensor_detail(score)}")
 
-                # 确保 Score 形状与输入相同
-                assert score.shape == X.shape, f"{X.shape}, {score.shape}"
+                # 检查张量形状
+                assert (
+                    score.shape == X.shape
+                ), f"Score 形状与输入不匹配：期望 {X.shape}，但得到了 {score.shape}"
 
                 # 将维度恢复到原始形状
                 score = score.reshape(shape_b, shape_t, shape_c, shape_h, shape_w)
