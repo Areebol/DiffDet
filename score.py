@@ -352,6 +352,6 @@ if __name__ == "__main__":
     scores = calc_video_score(test_video)
 
     # 打印每个时间步的分数
-    print("\n各时间步的分数:")
+    print("\nby_t_step 的总平均分数:")
     for t_step, score in scores.items():
         print(f"t={t_step}: {score:.6f}")

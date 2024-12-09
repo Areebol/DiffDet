@@ -13,7 +13,8 @@ from torchvision.transforms.functional import InterpolationMode
 
 NUM_FRAMES = 8
 FEATURE_LEN = NUM_FRAMES * 512
-FEATURE = "dnf"
+FEATURE = "score"
+# FEATURE = "dnf"
 
 load_size = 256
 crop_size = 224
@@ -53,14 +54,32 @@ Compose([
         Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711)),
 ])
 """
+diffusion_model = None
+
+
+def get_clip_model():
+    global clip_model, clip_preprocess
+    if clip_model is None or clip_preprocess is None:
+        clip_model, clip_preprocess = clip.load("ViT-B/32", device=device)
+    return clip_model, clip_preprocess
+
+
+def get_diffusion_model():
+    global diffusion_model
+    if diffusion_model is None:
+        diffusion_model = Diffusion()
+        diffusion_ckpt = (
+            f"{cwd}/models/dnf_diffusion.ckpt"  # Diffusion trained on LSUN Bedroom
+        )
+        diffusion_model.load_state_dict(torch.load(diffusion_ckpt, weights_only=True))
+        diffusion_model = diffusion_model.to(device)
+    diffusion_model.eval()
+    return diffusion_model
 
 
 def clip_feature(img: Image) -> torch.Tensor:
     """提取图像的 CLIP 特征"""
-    global clip_model, clip_preprocess
-    if clip_model is None or clip_preprocess is None:
-        clip_model, clip_preprocess = clip.load("ViT-B/32", device=device)
-
+    clip_model, clip_preprocess = get_clip_model()
     # 对图像进行预处理
     img = clip_preprocess(img).unsqueeze(0).to(device)
     # 用 CLIP 提取特征
@@ -68,12 +87,6 @@ def clip_feature(img: Image) -> torch.Tensor:
     return features  # torch.Size([1, 512])
 
 
-# 特征提取 Diffusion 模型
-diffusion_model = Diffusion()
-diffusion_ckpt = f"{cwd}/models/dnf_diffusion.ckpt"  # Diffusion trained on LSUN Bedroom
-diffusion_model.load_state_dict(torch.load(diffusion_ckpt, weights_only=True))
-diffusion_model = diffusion_model.to(device)
-diffusion_model.eval()
 diffusion_preprocess = transforms.Compose(
     [
         transforms.Resize((256, 256), interpolation=InterpolationMode.BICUBIC),
