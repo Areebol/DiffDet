@@ -15,21 +15,30 @@ import clip
 from PIL import Image
 import cv2
 import time
+import random
 import multiprocessing
 import json
-
-from going_modular.going_modular import engine
-
 import logging
 import datetime
 
-cwd = Path(__file__).parent
 
 DEBUG = True
 
+
+device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+cwd = Path(__file__).parent
+
+
+# 优化 GPU 运算速度
+"""当设置为 True 时，cuDNN 会自动寻找最适合当前硬件的卷积算法。
+系统会先花费一些时间找到最优算法，然后在接下来的运行中一直使用这个最优算法。
+第一次运行时会略微变慢（因为要寻找最优算法），之后的运行会明显加速，并会占用更多的显存。"""
+torch.backends.cudnn.benchmark = True
+
+
+# 日志
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
-
 formatter = logging.Formatter("%(asctime)s - %(message)s")
 
 console_handler = logging.StreamHandler(sys.stdout)
@@ -38,7 +47,7 @@ console_handler.setLevel(logging.DEBUG if locals().get("DEBUG") else logging.INF
 
 file_handler = logging.FileHandler(f"{cwd}/logs/{datetime.datetime.now()}.log")
 file_handler.setFormatter(formatter)
-file_handler.setLevel(logging.INFO)
+file_handler.setLevel(logging.DEBUG)
 
 logger.addHandler(console_handler)
 logger.addHandler(file_handler)
@@ -48,14 +57,12 @@ debug = logging.debug
 error = logging.error
 
 
-device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-clip_model, clip_preprocess = None, None
-
-batch_size = 64
-# num_workers = 4
-num_workers = 0
-
-seed = 42
+def set_random_seed(random_seed):
+    random.seed(random_seed)
+    np.random.seed(random_seed)
+    torch.manual_seed(random_seed)  # 设置 PyTorch 的 CPU 随机种子
+    if torch.cuda.is_available():  # 如果 GPU 可用，设置 PyTorch 的 GPU 随机种子
+        torch.cuda.manual_seed_all(random_seed)
 
 
 def tensor_detail(x: torch.Tensor):

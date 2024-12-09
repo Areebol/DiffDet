@@ -309,24 +309,10 @@ def calc_video_score_batch(dataloader):
     return batch_results
 
 
-def set_random_seed(random_seed):
-    random.seed(random_seed)
-    np.random.seed(random_seed)
-    torch.manual_seed(random_seed)  # 设置 PyTorch 的 CPU 随机种子
-    if torch.cuda.is_available():  # 如果 GPU 可用，设置 PyTorch 的 GPU 随机种子
-        torch.cuda.manual_seed_all(random_seed)
-
-
 if __name__ == "__main__":
 
     # 设置随机种子
-    set_random_seed(random_seed=1235)
-
-    # 优化 GPU 运算速度
-    """当设置为 True 时，cuDNN 会自动寻找最适合当前硬件的卷积算法。
-    系统会先花费一些时间找到最优算法，然后在接下来的运行中一直使用这个最优算法。
-    第一次运行时会略微变慢（因为要寻找最优算法），之后的运行会明显加速，并会占用更多的显存。"""
-    torch.backends.cudnn.benchmark = True
+    set_random_seed(1235)
 
     # 创建数据集和数据加载器
     class VideoDataset(Dataset):
@@ -356,3 +342,16 @@ if __name__ == "__main__":
     )
 
     # calc_video_score_batch(dataloader)
+
+    # 从数据集中取一个样本进行测试
+    test_video, test_label = dataset[0]  # 获取第一个样本
+    print(f"测试视频形状: {test_video.shape}")
+    print(f"测试标签: {test_label}")
+
+    # 计算视频分数
+    scores = calc_video_score(test_video)
+
+    # 打印每个时间步的分数
+    print("\n各时间步的分数:")
+    for t_step, score in scores.items():
+        print(f"t={t_step}: {score:.6f}")

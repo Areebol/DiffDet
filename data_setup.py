@@ -42,7 +42,7 @@ dataset_paths = {
 
 
 # 特征提取 CLIP 模型
-clip_model, clip_preprocess = clip.load("ViT-B/32", device=device)
+clip_model, clip_preprocess = None
 """
 clip_preprocess 自带预处理
 Compose([
@@ -57,6 +57,10 @@ Compose([
 
 def clip_feature(img: Image) -> torch.Tensor:
     """提取图像的 CLIP 特征"""
+    global clip_model, clip_preprocess
+    if clip_model is None or clip_preprocess is None:
+        clip_model, clip_preprocess = clip.load("ViT-B/32", device=device)
+
     # 对图像进行预处理
     img = clip_preprocess(img).unsqueeze(0).to(device)
     # 用 CLIP 提取特征
@@ -286,9 +290,9 @@ def dataloader(dataset: Dataset):
     """传入数据集构建数据加载器"""
     return DataLoader(
         dataset,
-        batch_size=batch_size,
+        batch_size=64,
         shuffle=True,
-        num_workers=num_workers,
+        num_workers=4,
         collate_fn=collate_fn,
     )
 
