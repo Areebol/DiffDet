@@ -123,125 +123,137 @@ class VideoFeatureDataset(Dataset):
         self.fake = 1 if "/fake/" in str(self.dataset_path) else 0
         self.feature = feature
         info(
-            f"[数据集] 初始化数据集 {self.dataset_name}，特征：{self.feature}，总样本数量：{len(self)}，标签：{self.fake}"
+            f"[数据集] 初始化数据集 {self.dataset_name}，特征：{self.feature}，"
+            f"总样本数量：{len(self)}，标签：{self.fake}"
         )
 
     def __len__(self):
         return len(self.files)
 
-    def _load_cached_feature(self, feature_path: Path, t: float):
-        """加载已缓存的特征文件"""
-        if self.feature == "clip" and feature_path.with_suffix(".npy").exists():
-            debug(f"[数据集] 加载特征：{feature_path}")
+    def _get_feature_path(self, video_path: Path) -> Path:
+        """根据视频路径生成特征文件路径"""
+        return Path(
+            str(video_path).replace(DATASETS_DIR, f"{FEATURES_DIR}/{self.feature}")
+        )
+
+    def _load_clip_feature(self, feature_path: Path) -> Optional[torch.Tensor]:
+        """加载CLIP特征文件"""
+        if not feature_path.with_suffix(".npy").exists():
+            return None
+
+        timer = Timer()
+        debug(f"[数据集] 加载CLIP特征：{feature_path}")
+
+        try:
             features_array = np.load(feature_path.with_suffix(".npy"))
             features_tensor = torch.tensor(
                 features_array, dtype=torch.float32, device=device
             )
-
-            try:
-                debug(f"[数据集] 原特征形状：{features_tensor.shape}")
-                features_tensor = features_tensor.reshape(1, FEATURE_LEN)
-                debug(f"[数据集] 重塑后特征形状：{features_tensor.shape}")
-            except Exception as e:
-                error(f"[数据集] 重塑特征出错：{e}")
-                error(f"[数据集] 原特征形状：{features_tensor.shape}")
-                error(f"[数据集] 原特征：{features_tensor}")
-                return None
-
-            debug(f"[数据集] 加载特征耗时：{time.time() - t:.2f} 秒")
+            features_tensor = features_tensor.reshape(1, FEATURE_LEN)
+            debug(f"[数据集] 加载CLIP特征耗时：{timer.tick()}")
             return features_tensor.to(device)
+        except Exception as e:
+            error(f"[数据集] 加载CLIP特征失败：{e}")
+            return None
 
-        elif self.feature == "dnf" and feature_path.with_suffix(".pt").exists():
-            debug(f"[数据集] 加载特征：{feature_path}")
+    def _load_dnf_feature(self, feature_path: Path) -> Optional[torch.Tensor]:
+        """加载DNF特征文件"""
+        if not feature_path.with_suffix(".pt").exists():
+            return None
+
+        timer = Timer()
+        debug(f"[数据集] 加载DNF特征：{feature_path}")
+
+        try:
             features = torch.load(feature_path.with_suffix(".pt"), weights_only=True)
-            features: torch.Tensor = features.to(device)
-            debug(f"[数据集] 加载特征耗时：{time.time() - t:.2f} 秒")
-            return features
+            debug(f"[数据集] 加载DNF特征耗时：{timer.tick()}")
+            return features.to(device)
+        except Exception as e:
+            error(f"[数据集] 加载DNF特征失败：{e}")
+            return None
 
+    def _load_cached_feature(self, feature_path: Path) -> Optional[torch.Tensor]:
+        """加载缓存的特征文件"""
+        if self.feature == "clip":
+            return self._load_clip_feature(feature_path)
+        elif self.feature == "dnf":
+            return self._load_dnf_feature(feature_path)
         return None
 
-    def _read_video_frames(self, video_path: Path, t: float):
+    def _read_video_frames(self, video_path: Path) -> Optional[List]:
         """读取视频帧"""
-        try:
-            cap = cv2.VideoCapture(video_path)
-            debug(f"[数据集] 读取视频耗时：{time.time() - t:.2f} 秒")
+        timer = Timer()
+        debug(f"[数据集] 开始读取视频：{video_path}")
 
+        try:
+            cap = cv2.VideoCapture(str(video_path))
             frames = []
-            for i in range(NUM_FRAMES):
+            for _ in range(NUM_FRAMES):
                 ret, frame = cap.read()
                 if not ret:
                     break
                 frames.append(frame)
             cap.release()
-            debug(f"[数据集] 读取视频帧耗时：{time.time() - t:.2f} 秒")
+
+            if len(frames) < NUM_FRAMES:
+                error(f"[数据集] 视频帧数不足：{video_path}")
+                return None
+
+            debug(f"[数据集] 读取视频帧完成，耗时：{timer.tick()}")
             return frames
-        except:
-            error(f"[数据集] 读取视频帧出错：{video_path}")
+        except Exception as e:
+            error(f"[数据集] 读取视频失败：{video_path}, 错误：{e}")
             return None
 
-    def _extract_clip_features(self, frames):
-        """提取 CLIP 特征"""
+    def _extract_features(self, frames: List) -> torch.Tensor:
+        """提取特征"""
+        timer = Timer()
         features = []
+
         for frame in frames:
             img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            # CLIP 中自带图像预处理
-            features.append(clip_feature(img).detach().cpu().numpy())
-        return features
-
-    def _extract_dnf_features(self, frames):
-        """提取 DNF 特征"""
-        features = []
-        for frame in frames:
-            img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            # 对图像进行 DNF 预处理
-            img: torch.Tensor = diffusion_preprocess(img)
-            # 提取图像的 DNF 特征
-            feature_dnf = dnf_feature(img)  # (1, 3, 256, 256)
-            # 将 DNF 特征中心裁剪成 224*224
-            feature_dnf = feature_dnf.reshape(3, 256, 256)[:, 16:240, 16:240]
-            features.append(feature_dnf.detach())
-        return features
-
-    def _save_features(self, features: torch.Tensor, feature_path: Path, t: float):
-        """保存特征"""
-        feature_path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(features, feature_path.with_suffix(".pt"))
-        debug(f"[数据集] 保存特征耗时：{time.time() - t:.2f} 秒")
-
-    def __getitem__(self, idx):
-        t = time.time()
-
-        # 构建特征文件路径
-        feature_path = Path(
-            str(self.files[idx]).replace(DATASETS_DIR, f"{FEATURES_DIR}/{self.feature}")
-        )
-
-        # 尝试加载缓存的特征
-        cached_features = self._load_cached_feature(feature_path, t)
-        if cached_features is not None:
-            return cached_features, self.fake
-
-        # 读取视频帧
-        frames = self._read_video_frames(self.files[idx], t)
-        if frames is None:
-            self.files[idx].unlink()
-            return None
-
-        # 提取特征
-        if self.feature == "clip":
-            features = self._extract_clip_features(frames)
-        elif self.feature == "dnf":
-            features = self._extract_dnf_features(frames)
+            if self.feature == "clip":
+                feature = clip_feature(img).detach().cpu().numpy()
+            else:  # dnf
+                img = diffusion_preprocess(img)
+                feature_dnf = dnf_feature(img)
+                feature = feature_dnf.reshape(3, 256, 256)[:, 16:240, 16:240].detach()
+            features.append(feature)
 
         features = torch.stack(features)
-        # 交换维度 ->（通道，帧数，...）
         features = features.permute(1, 0, 2, 3).type(torch.float32)
-        debug(f"[数据集] 提取视频特征耗时：{time.time() - t:.2f} 秒")
+        debug(f"[数据集] 特征提取完成，耗时：{timer.tick()}")
+        return features
 
-        # 保存特征
-        self._save_features(features, feature_path, t)
+    def _save_features(self, features: torch.Tensor, feature_path: Path) -> None:
+        """保存特征"""
+        timer = Timer()
+        try:
+            feature_path.parent.mkdir(parents=True, exist_ok=True)
+            torch.save(features, feature_path.with_suffix(".pt"))
+            debug(f"[数据集] 特征保存完成，耗时：{timer.tick()}")
+        except Exception as e:
+            error(f"[数据集] 保存特征失败：{e}")
 
-        return features, self.fake
+    def __getitem__(self, idx) -> Optional[Tuple[torch.Tensor, int]]:
+        timer = Timer()
+        video_path = self.files[idx]
+        feature_path = self._get_feature_path(video_path)
+
+        # 尝试加载缓存的特征
+        if cached_features := self._load_cached_feature(feature_path):
+            return cached_features, self.fake
+
+        # 读取并处理视频帧
+        if frames := self._read_video_frames(video_path):
+            features = self._extract_features(frames)
+            self._save_features(features, feature_path)
+            debug(f"[数据集] 样本处理完成，总耗时：{timer.tick()}")
+            return features, self.fake
+
+        # 处理失败，删除损坏的视频文���
+        video_path.unlink(missing_ok=True)
+        return None
 
     def __repr__(self) -> str:
         return f"{self.dataset_name} ({len(self)})"

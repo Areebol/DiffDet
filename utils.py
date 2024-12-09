@@ -20,6 +20,7 @@ import multiprocessing
 import json
 import logging
 import datetime
+from typing import Optional, List, Tuple
 
 
 DEBUG = True
@@ -69,3 +70,22 @@ def tensor_detail(x: torch.Tensor):
     return (
         f"{x.shape} [{x.device}] ({x.min():.3f} {x.mean():.3f} {x.max():.3f}) {x.dtype}"
     )
+
+
+class Timer:
+    """简易计时器，用于测量代码执行时间"""
+
+    def __init__(self):
+        self.start_time = time.time()
+        self.last_time = self.start_time
+
+    def elapsed(self):
+        """返回从创建计时器到现在经过的秒数"""
+        now = time.time()
+        elapsed = now - self.last_time
+        self.last_time = now
+        return f"{elapsed:.2f} 秒"
+
+    def total(self):
+        """返回从创建计时器到现在的总用时"""
+        return f"{time.time() - self.start_time:.2f} 秒"
