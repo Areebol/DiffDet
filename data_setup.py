@@ -11,6 +11,8 @@ from torchvision.utils import save_image
 from torchvision.io import read_image
 from torchvision.transforms.functional import InterpolationMode
 from score import extract_video_score
+import threading
+from queue import Queue
 
 FEATURE = "score"
 # FEATURE = "dnf"
@@ -46,7 +48,7 @@ dataset_paths = {
 
 
 # 特征提取 CLIP 模型
-clip_model, clip_preprocess = None
+clip_model, clip_preprocess = None, None
 """
 clip_preprocess 自带预处理
 Compose([
@@ -138,8 +140,8 @@ class VideoFeatureDataset(Dataset):
         video_path = self.files[idx]
         feature_path = self._get_feature_path(video_path)
 
-        # 尝试加载缓存的特征
-        if cached_features := self._load_cached_feature(feature_path):
+        cached_features = self._load_cached_feature(feature_path)
+        if cached_features is not None:
             return cached_features, self.fake
 
         # 读取并处理视频帧
@@ -250,27 +252,24 @@ class VideoFeatureDataset(Dataset):
             return None
 
     def _extract_features(self, frames: List) -> torch.Tensor:
-        """提取特征"""
         timer = Timer()
 
-        # 如果是 score 特征，使用 extract_video_score 直接提取
         if self.feature == "score":
-            # 将帧转换为 [0,1] 范围的 tensor
             score_transform = transforms.Compose(
                 [
-                    transforms.Lambda(lambda x: cv2.cvtColor(x, cv2.COLOR_BGR2RGB)),
-                    transforms.Lambda(lambda x: torch.from_numpy(x)),
-                    transforms.Lambda(
-                        lambda x: x.permute(2, 0, 1)
-                    ),  # (h, w, c) -> (c, h, w)
-                    transforms.Lambda(lambda x: x / 255.0),  # 归一化到 [0,1]
+                    transforms.ToTensor(),  # 将 0-255 归一化到 0-1
+                    transforms.Resize(
+                        (256, 256), interpolation=InterpolationMode.BICUBIC
+                    ),
                 ]
             )
+
+            frames = [cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) for frame in frames]
             frames = [score_transform(frame) for frame in frames]
             frames_tensor = torch.stack(frames)
+            frames_tensor = torch.clamp(frames_tensor, 0, 1)
             debug(f"[数据集] 视频帧转换为 tensor，形状：{frames_tensor.shape}")
 
-            # 使用 extract_video_score 提取特征
             features = extract_video_score(frames_tensor)
             debug(f"[数据集] Score 特征提取完成，形状：{features.shape}")
             return features
@@ -354,20 +353,43 @@ def dataloader(dataset: Dataset):
     )
 
 
+def process_gpu_samples(device, dataset, start_idx, end_idx):
+    """在指定 GPU 上处理数据样本的线程函数"""
+    torch.cuda.set_device(device)
+    for idx in range(start_idx, end_idx):
+        data = dataset[idx]
+
+
 if __name__ == "__main__":
     """"""
 
-    # 加载所有数据集
-    for dataset_name, dataset_path in dataset_paths.items():
-        dataset = VideoFeatureDataset(dataset_name)
-        sub_dataset = SubsetVideoFeatureDataset(dataset, list(range(3000)))
-        for data in sub_dataset:
+    # 加载数据集
+    fake_datasets = {
+        "DynamicCrafter": VideoFeatureDataset("DynamicCrafter"),
+        "Latte": VideoFeatureDataset("Latte"),
+        "OpenSora": VideoFeatureDataset("OpenSora"),
+        "Pika": VideoFeatureDataset("Pika"),
+        "SEINE": VideoFeatureDataset("SEINE"),
+        "Crafter": VideoFeatureDataset("Crafter"),
+        "Gen2": VideoFeatureDataset("Gen2"),
+        "HotShot": VideoFeatureDataset("HotShot"),
+        "Lavie": VideoFeatureDataset("Lavie"),
+        "ModelScope": VideoFeatureDataset("ModelScope"),
+        "MoonValley": VideoFeatureDataset("MoonValley"),
+        "MorphStudio": VideoFeatureDataset("MorphStudio"),
+        "Show_1": VideoFeatureDataset("Show_1"),
+        "WildScrape": VideoFeatureDataset("WildScrape"),
+        "Sora": VideoFeatureDataset("Sora"),
+    }
+
+    # 对假视频数据集取前50个样本并遍历
+    for name, dataset in fake_datasets.items():
+        dataset = SubsetVideoFeatureDataset(dataset, list(range(50)))
+        for data in dataset:
             data
 
-    # dataset = VideoFeatureDataset(dataset_paths["DynamicCrafter"])
-
-    # dataset[:100]
-
-    # _dataloader = dataloader(dataset)
-    # data = next(iter(_dataloader))
-    # print(data, len(data[0]), len(data[1]))
+    # 加载真实视频数据集并取前500个样本并遍历
+    real_dataset = VideoFeatureDataset("MSR-VTT")
+    real_dataset = SubsetVideoFeatureDataset(real_dataset, list(range(500)))
+    for data in real_dataset:
+        data
