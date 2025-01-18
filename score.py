@@ -183,6 +183,90 @@ def calc_video_score_by_timestep(scores_at_t):
     return avg_scores_by_timestep
 
 
+def calc_video_score_by_timestep_v2(scores_at_t):
+    """计算不同时间步的视频分数
+
+    Args:
+        scores_at_t: 形状为 (t_steps, num_frames, channels, height, width) 的张量,
+            表示每个时间步的 Score
+
+    Returns:
+        dict: key 为时间步,value 为对应时间步的标量分数
+    """
+    # 对前 selected_t_steps 分别求平均
+    avg_scores_by_timestep = {}
+    for by_t_step in selected_t_steps:
+        if by_t_step > diffuse_t:
+            break
+
+        debug(f"by_t_step: {by_t_step}")
+
+        # 取出当前时间步的分数
+        score = scores_at_t[:by_t_step]  # (t_steps, t, c, h, w)
+        debug(f"score: {tensor_detail(score)}")
+
+        score_mean = torch.mean(score, dim=0)  # (t, c, h, w)
+        debug(f"score_mean: {tensor_detail(score_mean)}")
+
+        # 在时间维度上相邻的帧的 Score 相减
+        score_diff = score_mean[1:] - score_mean[:-1]  # (t-1, c, h, w)
+        debug(f"score_diff: {tensor_detail(score_diff)}")
+
+        # 计算 L2 范数
+        score_mean_l2 = torch.norm(
+            score_diff.view(score_diff.shape[0], -1), dim=1
+        )  # (t-1,)
+        debug(f"score_mean_l2: {tensor_detail(score_mean_l2)}")
+
+        # 计算时间维度的平均
+        score_mean_l2_mean = torch.mean(score_mean_l2)  # 标量
+        debug(f"score_mean_l2_mean: {tensor_detail(score_mean_l2_mean)}")
+
+        avg_scores_by_timestep[by_t_step] = score_mean_l2_mean
+
+    return avg_scores_by_timestep
+
+
+def calc_video_score_by_timestep_v3(scores_at_t):
+    """计算不同时间步的视频分数
+
+    Args:
+        scores_at_t: 形状为 (t_steps, num_frames, channels, height, width) 的张量,
+            表示每个时间步的 Score
+
+    Returns:
+        dict: key 为时间步,value 为对应时间步的标量分数
+    """
+    # 对前 selected_t_steps 分别求平均
+    avg_scores_by_timestep = {}
+    for by_t_step in selected_t_steps:
+        if by_t_step > diffuse_t:
+            break
+
+        debug(f"by_t_step: {by_t_step}")
+
+        # 取出当前时间步的分数
+        score = scores_at_t[:by_t_step]  # (t_steps, t, c, h, w)
+        debug(f"score: {tensor_detail(score)}")
+
+        score_mean = torch.mean(score, dim=0)  # (t, c, h, w)
+        debug(f"score_mean: {tensor_detail(score_mean)}")
+
+        # 计算 L2 范数
+        score_mean_l2 = torch.norm(
+            score_mean.view(score_mean.shape[0], -1), dim=1
+        )  # (t,)
+        debug(f"score_mean_l2: {tensor_detail(score_mean_l2)}")
+
+        # 计算时间维度的平均
+        score_mean_l2_mean = torch.mean(score_mean_l2)  # 标量
+        debug(f"score_mean_l2_mean: {tensor_detail(score_mean_l2_mean)}")
+
+        avg_scores_by_timestep[by_t_step] = score_mean_l2_mean
+
+    return avg_scores_by_timestep
+
+
 def calc_video_score_batch(dataloader):
     """计算视频的分数
 

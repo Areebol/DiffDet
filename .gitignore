@@ -4,7 +4,6 @@ models
 *test*
 logs
 *.log
-out
 *GenVideo*
 features
 *.logs
@@ -12,3 +11,4 @@ dnf
 TimeSformer
 tmp
 t[1-9].py
+MME

@@ -5,7 +5,11 @@ from score import *
 from scipy.stats import mannwhitneyu
 
 
-def save_scores(datasets):
+def save_scores(
+    datasets,
+    calc_fn=calc_video_score_by_timestep_v2,
+    out_data_file="12091722_scores.json",
+):
     """将分数和标签保存到 json 文件"""
 
     # 创建输出目录
@@ -23,7 +27,7 @@ def save_scores(datasets):
 
             features, label = data
             # 计算每个时间步的分数
-            scores = calc_video_score_by_timestep(features)
+            scores = calc_fn(features)
 
             # 将 tensor 转换为 float
             scores = {k: float(v.cpu()) for k, v in scores.items()}
@@ -31,17 +35,17 @@ def save_scores(datasets):
             results.append({"label": int(label), "scores": scores})
 
     # 保存到 json 文件
-    with open("out/12091722_scores.json", "w") as f:
+    with open(f"out/{out_data_file}", "w") as f:
         json.dump(results, f, indent=2)
 
-    info(f"保存分数到 out/12091722_scores.json，共 {len(results)} 条记录")
+    info(f"保存分数到 out/{out_data_file}，共 {len(results)} 条记录")
 
 
-def load_scores():
+def load_scores(data_file="12091722_scores.json"):
     """从 json 文件加载分数和标签"""
-    with open("out/12091722_scores.json", "r") as f:
+    with open(f"out/{data_file}", "r") as f:
         results = json.load(f)
-    info(f"从 out/12091722_scores.json 加载分数，共 {len(results)} 条记录")
+    info(f"从 out/{data_file} 加载分数，共 {len(results)} 条记录")
     return results
 
 
@@ -138,10 +142,10 @@ def plot_score_v2():
     plt.show()
 
 
-def plot_auc_v3():
+def plot_auc_v3(data_file="12091722_scores.json"):
     """第三个版本的 AUC 曲线绘制函数,使用 mannwhitneyu 计算每个时间步的 AUC"""
     # 加载数据
-    results = load_scores()
+    results = load_scores(data_file)
 
     # 分离真假样本数据
     real_data = []
@@ -171,7 +175,7 @@ def plot_auc_v3():
     plt.figure(figsize=(10, 6))
     plt.plot(timesteps, auc_scores, "b-", linewidth=2)
     plt.xlabel("Timestep")
-    plt.ylabel("AUC Score") 
+    plt.ylabel("AUC Score")
     plt.title("AUC Scores at Different Timesteps")
     plt.grid(True)
     plt.show()
@@ -179,11 +183,14 @@ def plot_auc_v3():
 
 if __name__ == "__main__":
     # 加载数据集
-    # datasets = {
-    #     "DynamicCrafter": VideoFeatureDataset("DynamicCrafter"),
-    #     "MSR-VTT": VideoFeatureDataset("MSR-VTT"),
-    # }
+    datasets = {
+        "DynamicCrafter": VideoFeatureDataset("DynamicCrafter"),
+        "MSR-VTT": VideoFeatureDataset("MSR-VTT"),
+    }
 
-    # plot_score(datasets)
-    # save_scores(datasets)
-    plot_auc_v3()
+    save_scores(
+        datasets,
+        calc_fn=calc_video_score_by_timestep_v3,
+        out_data_file="12101515_scores.json",
+    )
+    plot_auc_v3(data_file="12101515_scores.json")
