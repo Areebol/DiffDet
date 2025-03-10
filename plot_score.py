@@ -190,7 +190,7 @@ if __name__ == "__main__":
 
     save_scores(
         datasets,
-        calc_fn=calc_video_score_by_timestep_v3,
+        calc_fn=score_feature_at_timesteps,
         out_data_file="12101515_scores.json",
     )
     plot_auc_v3(data_file="12101515_scores.json")
